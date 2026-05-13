@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "runtime-agents"
+version = "1.1.1"
+description = "Local-first personal agent control plane"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "PyYAML>=6.0",
+]
+
+[project.scripts]
+agentctl = "runtime_agents.cli:main"
+agentd = "runtime_agents.daemon:main"
+agentbot = "runtime_agents.telegram_bot:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
