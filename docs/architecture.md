@@ -1,4 +1,4 @@
-# Architecture
+# Architecture (v1.2.0)
 
 runtime-agents is a local personal-agent control plane.
 

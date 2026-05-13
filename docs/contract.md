@@ -1,4 +1,4 @@
-# runtime-agents Contract
+# runtime-agents Contract (v1.2.0)
 
 ## Commands
 - agentctl

@@ -11,6 +11,14 @@ import subprocess
 import sys
 from pathlib import Path
 
+from runtime_agents import assistant_router as assistant_router_mod
+from runtime_agents import paths as paths_mod
+from runtime_agents import plans as plans_mod
+from runtime_agents import policy as policy_mod
+from runtime_agents import schedules as schedules_mod
+from runtime_agents import state as state_mod
+from runtime_agents.models import TASK_STATUSES as MODEL_TASK_STATUSES
+
 try:
     from runtime_agents.amb_adapter import AMBAdapter
 except ImportError:
@@ -26,45 +34,37 @@ except ImportError:  # pragma: no cover
 
 
 def config_home():
-    return Path(os.environ.get("RUNTIME_AGENTS_CONFIG_HOME", str(Path.home() / ".config" / "runtime-agents"))).expanduser()
+    return paths_mod.config_home()
 
 
 def state_home():
-    return Path(os.environ.get("RUNTIME_AGENTS_STATE_HOME", str(Path.home() / ".local" / "share" / "runtime-agents"))).expanduser()
+    return paths_mod.state_home()
 
 
 def resolve_agentctl_bin():
-    return os.environ.get("RUNTIME_AGENTS_AGENTCTL_BIN") or shutil.which("agentctl") or sys.argv[0]
+    return paths_mod.resolve_agentctl_bin()
 
 
 def resolve_agentbot_bin():
-    return os.environ.get("RUNTIME_AGENTS_AGENTBOT_BIN") or shutil.which("agentbot") or str(Path.home() / ".local" / "bin" / "agentbot")
+    return paths_mod.resolve_agentbot_bin()
 
 
-CONFIG_PATH = config_home() / "agents.yaml"
-TELEGRAM_CONFIG_PATH = config_home() / "telegram.yaml"
-VERSION_PATH = config_home() / "VERSION"
-STATE_DIR = state_home()
-RUNS_DIR = STATE_DIR / "runs"
-PLANS_DIR = STATE_DIR / "plans"
-TASKS_JSONL = STATE_DIR / "tasks.jsonl"
-QUEUE_JSONL = STATE_DIR / "queue.jsonl"
-QUEUE_LOCK = STATE_DIR / "queue.lock"
-SCHEDULES_JSONL = STATE_DIR / "schedules.jsonl"
-PAUSED_FILE = STATE_DIR / "paused"
-AGENTD_PID = STATE_DIR / "agentd.pid"
-AGENTD_LOG = STATE_DIR / "agentd.log"
-TELEGRAM_OFFSET = STATE_DIR / "telegram.offset"
-TELEGRAM_LOG = STATE_DIR / "telegram.log"
-STATUS_VALUES = {
-    "queued",
-    "running",
-    "completed",
-    "failed",
-    "approval_required",
-    "cancelled",
-    "retrying",
-}
+CONFIG_PATH = paths_mod.CONFIG_PATH
+TELEGRAM_CONFIG_PATH = paths_mod.TELEGRAM_CONFIG_PATH
+VERSION_PATH = paths_mod.VERSION_PATH
+STATE_DIR = paths_mod.STATE_DIR
+RUNS_DIR = paths_mod.RUNS_DIR
+PLANS_DIR = paths_mod.PLANS_DIR
+TASKS_JSONL = paths_mod.TASKS_JSONL
+QUEUE_JSONL = paths_mod.QUEUE_JSONL
+QUEUE_LOCK = paths_mod.QUEUE_LOCK
+SCHEDULES_JSONL = paths_mod.SCHEDULES_JSONL
+PAUSED_FILE = paths_mod.PAUSED_FILE
+AGENTD_PID = paths_mod.AGENTD_PID
+AGENTD_LOG = paths_mod.AGENTD_LOG
+TELEGRAM_OFFSET = paths_mod.TELEGRAM_OFFSET
+TELEGRAM_LOG = paths_mod.TELEGRAM_LOG
+STATUS_VALUES = MODEL_TASK_STATUSES
 PROFILE_MODELS = {
     "sonnet": "claude-sonnet-4-6",
     "gpt54": "gpt-5.4",
@@ -187,9 +187,7 @@ def write_json(path, data):
 
 
 def atomic_write_json(path, data):
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    tmp.replace(path)
+    state_mod.atomic_write_json(path, data)
 
 
 def print_json(data):
@@ -202,53 +200,28 @@ def append_task(data):
 
 
 def append_queue(data):
-    with QUEUE_JSONL.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(data, sort_keys=True) + "\n")
-    try:
-        QUEUE_JSONL.chmod(0o600)
-    except Exception:
-        pass
+    state_mod.append_jsonl(QUEUE_JSONL, data)
+    state_mod.ensure_private_file(QUEUE_JSONL)
 
 
 def append_schedule(data):
-    with SCHEDULES_JSONL.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(data, sort_keys=True) + "\n")
-    try:
-        SCHEDULES_JSONL.chmod(0o600)
-    except Exception:
-        pass
+    state_mod.append_jsonl(SCHEDULES_JSONL, data)
+    state_mod.ensure_private_file(SCHEDULES_JSONL)
 
 
 def read_queue_events():
-    if not QUEUE_JSONL.exists():
-        return []
-    events = []
-    with QUEUE_JSONL.open("r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                events.append(json.loads(line))
-    return events
+    return state_mod.read_jsonl(QUEUE_JSONL)
 
 
 def read_schedule_events():
-    if not SCHEDULES_JSONL.exists():
-        return []
-    events = []
-    with SCHEDULES_JSONL.open("r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                events.append(json.loads(line))
-    return events
+    return state_mod.read_jsonl(SCHEDULES_JSONL)
 
 
 def latest_schedules():
-    latest = {}
-    for event in read_schedule_events():
-        sid = event.get("schedule_id") or event.get("name")
-        latest[sid] = {**latest.get(sid, {}), **event}
-    return latest
+    by_id = state_mod.latest_by_id(read_schedule_events(), "schedule_id")
+    by_name = state_mod.latest_by_id(read_schedule_events(), "name")
+    merged = {**by_name, **by_id}
+    return merged
 
 
 def schedule_by_name(name):
@@ -526,16 +499,9 @@ def normalize_submit_args(args):
 
 
 def detect_approvals(config, agent_cfg, prompt):
-    required = set(agent_cfg.get("approval_required") or [])
+    required = sorted(set(agent_cfg.get("approval_required") or []))
     rules = config.get("capability_rules") or {}
-    hits = []
-    haystack = prompt.lower()
-    for capability in required:
-        for pattern in (rules.get(capability) or {}).get("patterns") or []:
-            if pattern.lower() in haystack:
-                hits.append(capability)
-                break
-    return sorted(set(hits))
+    return policy_mod.detect_capabilities(prompt, allowed=required, patterns={k: (v or {}).get("patterns", []) for k, v in rules.items()})
 
 
 def build_command(tool, model, prompt, profile=None, autonomy="read_only"):
@@ -605,21 +571,17 @@ def run_shell_check(command, cwd, timeout):
 
 
 def should_fallback(result):
-    text = f"{result.get('stdout', '')}\n{result.get('stderr', '')}"
-    return result.get("returncode") != 0 and any(marker.lower() in text.lower() for marker in TRANSIENT_MARKERS)
+    return policy_mod.classify_failure(result.get("stdout", ""), result.get("stderr", ""), result.get("returncode", 1)) == "transient_model_error"
 
 
 def classify_failure_text(text):
-    lowered = (text or "").lower()
-    if any(marker.lower() in lowered for marker in TRANSIENT_MARKERS):
-        return "transient_model_error", True
-    return None, False
+    kind = policy_mod.classify_failure(text or "", "", 1)
+    return (kind, kind is not None)
 
 
 def classify_process_failure(returncode, stdout="", stderr=""):
-    if returncode == 0:
-        return None, False
-    return classify_failure_text(f"{stdout or ''}\n{stderr or ''}")
+    kind = policy_mod.classify_failure(stdout, stderr, returncode)
+    return kind, kind is not None
 
 
 def tail_text(text, limit=12000):
@@ -637,10 +599,7 @@ def tail_lines(text, count):
 
 
 def load_json_file(path, default=None):
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return default
+    return state_mod.read_json(path, default)
 
 
 def iterate_round_summaries(run_dir):
@@ -884,71 +843,19 @@ def recall_preview_payload(workspace_name, query, memory_opts=None):
 
 
 def cron_field_matches(value, field):
-    field = str(field).strip()
-    if field == "*":
-        return True
-    for part in field.split(","):
-        part = part.strip()
-        if not part:
-            continue
-        if part.startswith("*/"):
-            try:
-                step = int(part[2:])
-                return step > 0 and value % step == 0
-            except ValueError:
-                return False
-        if "-" in part:
-            try:
-                start, end = [int(x) for x in part.split("-", 1)]
-                if start <= value <= end:
-                    return True
-            except ValueError:
-                return False
-        else:
-            try:
-                if int(part) == value:
-                    return True
-            except ValueError:
-                return False
-    return False
+    return schedules_mod.cron_field_matches(value, field)
 
 
 def cron_matches_now(expr, when=None):
-    when = when or dt.datetime.now().astimezone()
-    fields = str(expr).split()
-    if len(fields) != 5:
-        raise ValueError("cron must have five fields: minute hour day month weekday")
-    minute, hour, day, month, weekday = fields
-    # Python Monday=0; cron Sunday=0. Convert to cron-style Sunday=0.
-    cron_weekday = (when.weekday() + 1) % 7
-    return (
-        cron_field_matches(when.minute, minute)
-        and cron_field_matches(when.hour, hour)
-        and cron_field_matches(when.day, day)
-        and cron_field_matches(when.month, month)
-        and cron_field_matches(cron_weekday, weekday)
-    )
+    return schedules_mod.cron_matches_now(expr, when)
 
 
 def due_window_id(when=None):
-    when = when or dt.datetime.now().astimezone()
-    return when.strftime("%Y%m%d%H%M")
+    return schedules_mod.due_window_id(when)
 
 
 def schedule_due(schedule, when=None):
-    when = when or dt.datetime.now().astimezone()
-    if not schedule.get("enabled", True):
-        return False, "disabled"
-    try:
-        matches = cron_matches_now(schedule.get("cron"), when)
-    except Exception as exc:
-        return False, f"invalid_cron: {exc}"
-    if not matches:
-        return False, "not_due"
-    window = due_window_id(when)
-    if schedule.get("last_due_window") == window:
-        return False, "already_submitted_for_due_window"
-    return True, window
+    return schedules_mod.schedule_due(schedule, when)
 
 
 def queue_item_from_schedule(schedule, when=None):
@@ -1186,70 +1093,24 @@ def failed_queue_item_for_plan_subtask(plan_id_value, subtask_id_value):
 
 
 def derive_plan_status(plan):
-    rows = []
-    any_failed = False
-    any_running = False
-    blocked_on = None
-    blocked_reason = None
-    all_completed = bool(plan.get("subtasks"))
-    previous_failed_blocker = None
-    previous_open_blocker = None
-    for subtask in plan.get("subtasks") or []:
-        sid = subtask.get("id")
-        item = queue_item_for_plan_subtask(plan.get("plan_id"), subtask.get("id"))
-        skip_event = latest_plan_event(plan.get("plan_id"), sid, "skip")
-        status = "pending"
-        queue_id_value = None
-        task_id_value = None
-        reason = None
-        if skip_event:
-            status = "skipped"
-            reason = skip_event.get("reason")
-        elif previous_failed_blocker:
-            status = "blocked"
-            reason = "dependency_failed"
-        elif previous_open_blocker:
-            status = "blocked"
-            reason = "dependency_not_completed"
-        elif item:
-            queue_id_value = item.get("queue_id")
-            task_id_value = item.get("task_id")
-            qstatus = item.get("status")
-            if qstatus == "queued":
-                status = "queued"
-            elif qstatus == "running":
-                status = "running"
-                any_running = True
-            elif qstatus == "completed":
-                status = "completed"
-            elif qstatus == "failed":
-                status = "failed"
-                any_failed = True
-                if not blocked_on:
-                    blocked_on = sid
-                    blocked_reason = "subtask_failed"
-            elif qstatus:
-                status = qstatus
-        if status != "completed":
-            all_completed = False
-        if status == "failed" and not skip_event and not previous_failed_blocker:
-            previous_failed_blocker = sid
-        elif status in {"pending", "queued", "running", "blocked"} and not previous_open_blocker and not previous_failed_blocker:
-            previous_open_blocker = sid
-        rows.append({"id": sid, "queue_id": queue_id_value, "task_id": task_id_value, "status": status, "reason": reason})
-    plan_status = plan.get("status")
-    if plan_status in {"enqueued", "running", "completed", "failed"}:
-        if any_failed:
-            plan_status = "blocked"
-        elif all_completed:
-            plan_status = "completed"
-        elif any(row["status"] in {"queued", "running", "completed"} for row in rows):
-            plan_status = "running"
-    payload = {"plan_id": plan.get("plan_id"), "status": plan_status, "goal": plan.get("goal"), "workspace": plan.get("workspace"), "subtasks": rows}
-    if blocked_on:
-        payload["blocked_on"] = blocked_on
-        payload["reason"] = blocked_reason
-    return payload
+    status = plans_mod.derive_plan_status(plan, queue_item_for_plan_subtask, latest_plan_event)
+    status["goal"] = plan.get("goal")
+    status["workspace"] = plan.get("workspace")
+    normalized = []
+    for row in status.get("subtasks") or []:
+        normalized.append({
+            "id": row.get("subtask_id"),
+            "queue_id": row.get("queue_id"),
+            "task_id": row.get("task_id"),
+            "status": row.get("status"),
+            "reason": row.get("reason"),
+        })
+    status["subtasks"] = normalized
+    if status.get("blocked_reason") and not status.get("reason"):
+        status["reason"] = status.get("blocked_reason")
+    if "blocked_reason" in status:
+        status.pop("blocked_reason", None)
+    return status
 
 
 def append_schedule_result(schedule_id_value, queue_id_value, task_id_value, status, completed_at, failure_class=None, retry_recommended=False):
@@ -2777,11 +2638,7 @@ def telegram_test_cmd(args):
 
 def extract_workspace_from_text(text):
     workspaces = load_workspaces()
-    for name in workspaces.keys():
-        if re.search(rf"\b{re.escape(name)}\b", text):
-            return name
-    match = re.search(r"\b([A-Za-z0-9_.:-]+-ws)\b", text)
-    return match.group(1) if match else None
+    return assistant_router_mod.extract_workspace_from_text(text, list(workspaces.keys()))
 
 
 def latest_blocked_plan_id():
@@ -2802,46 +2659,14 @@ def latest_failed_schedule_id():
 
 
 def route_assistant_message(message, session=None):
-    text = (message or "").strip()
-    lowered = text.lower()
-    session = session or {}
-    dangerous_patterns = ("deploy", "git push", "push to", "secret", "delete everything", "rm -rf", "global config", "global install")
-    if any(p in lowered for p in dangerous_patterns):
-        return {
-            "intent": "refuse_dangerous",
-            "risk": "blocked",
-            "requires_confirmation": False,
-            "actions": [],
-            "reply": "I can't run deploy, git push, secrets, destructive, global config, or global install actions from Telegram v1.1. I can help create a review plan instead.",
-        }
-    normalized = lowered.rstrip("?!.")
-    if normalized in {"what's going on", "whats going on", "status", "what is going on", "what needs attention", "what should i do next"} or "blocked" in lowered and "what" in lowered:
-        return {"intent": "status_overview", "risk": "safe", "requires_confirmation": False, "actions": [{"type": "status_overview"}], "reply_style": "summary"}
-    if "queue" in lowered:
-        return {"intent": "list_queue", "risk": "safe", "requires_confirmation": False, "actions": [{"type": "list_queue"}], "reply_style": "summary"}
-    if "running" in lowered and "plan" in lowered:
-        return {"intent": "list_plans", "risk": "safe", "requires_confirmation": False, "actions": [{"type": "list_plans", "status": "running"}], "reply_style": "summary"}
-    if "schedule" in lowered and "retry" not in lowered and "fail" not in lowered:
-        return {"intent": "list_schedules", "risk": "safe", "requires_confirmation": False, "actions": [{"type": "list_schedules"}], "reply_style": "summary"}
-    if "plan" in lowered and "repair" not in lowered and "approve" not in lowered:
-        return {"intent": "list_plans", "risk": "safe", "requires_confirmation": False, "actions": [{"type": "list_plans"}], "reply_style": "summary"}
-    workspace = extract_workspace_from_text(lowered) or session.get("last_workspace")
-    if lowered.startswith("check") or "health" in lowered:
-        workspace = workspace or "test-ws"
-        return {"intent": "repo_health_check", "workspace": workspace, "mode": "diagnose", "check": "pytest -q", "risk": "safe", "requires_confirmation": False, "actions": [{"type": "submit_iterate", "workspace": workspace, "agent": "planner", "goal": "Check repo health. Analyze failures only. Do not edit files.", "check": "pytest -q", "max_rounds": 1}], "reply_style": "queued"}
-    if "fix" in lowered or "failing test" in lowered or "failing tests" in lowered:
-        workspace = workspace or "test-ws"
-        return {"intent": "fix_issue", "workspace": workspace, "goal": "Fix failing tests", "risk": "workspace_write", "requires_confirmation": True, "actions": [{"type": "create_plan", "workspace": workspace, "goal": "Fix failing tests"}], "reply_style": "confirm"}
-    if "repair" in lowered:
-        plan_id_value = session.get("last_plan_id") or latest_blocked_plan_id()
-        return {"intent": "plan_recovery", "plan_id": plan_id_value, "action": "repair", "risk": "safe", "requires_confirmation": False, "actions": [{"type": "repair_plan", "plan_id": plan_id_value}], "reply_style": "summary"}
-    if "retry" in lowered and "schedule" in lowered:
-        schedule = session.get("last_schedule") or latest_failed_schedule_id()
-        return {"intent": "schedule_recovery", "schedule": schedule, "action": "retry", "risk": "safe", "requires_confirmation": False, "actions": [{"type": "retry_schedule", "schedule": schedule}], "reply_style": "queued"}
-    if "show logs" in lowered or lowered == "logs" or lowered == "show logs":
-        task_id_value = session.get("last_task_id")
-        return {"intent": "show_logs", "task_id": task_id_value, "risk": "safe", "requires_confirmation": False, "actions": [{"type": "show_task", "task_id": task_id_value}], "reply_style": "summary"}
-    return {"intent": "status_overview", "risk": "safe", "requires_confirmation": False, "actions": [{"type": "status_overview"}], "reply_style": "summary", "note": "fallback_status"}
+    workspaces = load_workspaces()
+    return assistant_router_mod.route_assistant_message(
+        message,
+        session=session,
+        workspace_names=list(workspaces.keys()),
+        latest_blocked_plan_id=latest_blocked_plan_id(),
+        latest_failed_schedule_id=latest_failed_schedule_id(),
+    )
 
 
 def assistant_route_cmd(args):
