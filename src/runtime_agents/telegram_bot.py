@@ -365,84 +365,108 @@ def handle_simple_agentctl(label, args):
 
 
 def execute_assistant_action(action, user_id):
-    action_type = action.get("type")
-    if action_type == "status_overview":
-        return handle_status()
-    if action_type == "list_queue":
-        return handle_queue()
-    if action_type == "list_plans":
-        return handle_plans(action.get("status"))
-    if action_type == "list_schedules":
-        return handle_schedules()
-    if action_type == "list_workspaces":
-        return handle_workspaces()
-    if action_type == "show_task":
-        task_id = action.get("task_id")
-        return handle_show(task_id) if task_id else "I don't know which task yet. Use /show <task_id> or ask after a task is mentioned."
-    if action_type == "submit_iterate":
-        workspace = action.get("workspace")
-        agent = action.get("agent") or "planner"
-        goal = action.get("goal") or "Check repo health. Analyze failures only. Do not edit files."
-        check = action.get("check") or "pytest -q"
-        result = run_agentctl(["submit", "--workspace", workspace, agent, goal, "--check", check, "--max-rounds", str(action.get("max_rounds") or 1)])
-        if not result["ok"]:
-            return safe_text(result["stderr"] or result["stdout"] or "assistant action failed")
-        data = result["json"] or {}
-        update_user_session(user_id, last_workspace=workspace, last_task_id=data.get("task_id"), last_queue_id=data.get("queue_id"), last_intent="repo_health_check")
-        return f"I’ll run a read-only health check for {workspace} using {agent}.\nCheck: {check}\nQueued: {data.get('queue_id')}"
-    if action_type == "create_plan":
-        workspace = action.get("workspace")
-        goal = action.get("goal") or "Fix issue"
-        result = run_agentctl(["plan", "create", "--workspace", workspace, goal])
-        if not result["ok"]:
-            return safe_text(result["stderr"] or result["stdout"] or "plan create failed")
-        data = result["json"] or {}
-        update_user_session(user_id, last_workspace=workspace, last_plan_id=data.get("plan_id"), last_intent="fix_issue")
-        return f"This may edit workspace files, so I created a plan first.\nPlan: {data.get('plan_id')}\nStatus: {data.get('status')}\nNext: say 'review plan' or use /plan {data.get('plan_id')}"
-    if action_type == "repair_plan":
-        plan_id = action.get("plan_id")
-        if not plan_id:
-            return "I don't know which plan to repair yet. Ask 'what is blocked?' or use /plan <plan_id>."
-        result = run_agentctl(["plan", "repair", plan_id, "--json"])
-        if not result["ok"]:
-            return safe_text(result["stderr"] or result["stdout"] or "plan repair failed")
-        update_user_session(user_id, last_plan_id=plan_id, last_intent="plan_recovery")
-        return f"Repair written for plan {plan_id}.\nSay 'retry that' if you want to enqueue the suggested retry, or use /plan {plan_id}."
-    if action_type == "retry_schedule":
-        schedule = action.get("schedule")
-        if not schedule:
-            return "I don't know which schedule to retry yet. Use /schedules or name the schedule."
-        result = run_agentctl(["schedule", "retry", schedule])
-        if not result["ok"]:
-            return safe_text(result["stderr"] or result["stdout"] or "schedule retry failed")
-        data = result["json"] or {}
-        update_user_session(user_id, last_schedule=schedule, last_queue_id=data.get("queue_id"), last_intent="schedule_recovery")
-        return f"Retried schedule {schedule}.\nQueued: {data.get('queue_id')}"
-    return "I understood the request, but that action is not enabled in Telegram assistant mode yet."
+    payload = run_agentctl(["assistant-exec", action.get("_message", ""), "--json", "--session-json", json.dumps(user_session(user_id))])
+    if not payload["ok"]:
+        return safe_text(payload["stderr"] or payload["stdout"] or "assistant action failed")
+    data = payload["json"] or {}
+    if data.get("status") == "pending_confirmation":
+        return data.get("message") or "This needs confirmation."
+    execution = data.get("execution") or []
+    if not execution:
+        return data.get("message") or "I don't have a safe action for that yet."
+    rendered = []
+    for item in execution:
+        action_type = item.get("type")
+        if action_type == "status_overview":
+            daemon = item.get("daemon") or {}
+            queue = item.get("queue") or []
+            plans = item.get("plans") or []
+            schedules = item.get("schedules") or []
+            q = fmt_counts(queue)
+            p = fmt_counts(plans)
+            enabled_schedules = len([s for s in schedules if s.get("enabled", True) and not s.get("removed")])
+            rendered.append(f"runtime-agents\nDaemon: {'running' if daemon.get('running') else 'stopped'}\nPaused: {str(bool(daemon.get('paused'))).lower()}\nQueue: {q.get('queued', 0)} pending / {q.get('running', 0)} running\nPlans: {p.get('blocked', 0)} blocked / {p.get('running', 0)} running / {p.get('completed', 0)} completed\nSchedules: {enabled_schedules} enabled\nLast task: {daemon.get('last_task_id') or 'none'}")
+        elif action_type == "list_workspaces":
+            workspaces = item.get("workspaces") or {}
+            lines = ["Workspaces"]
+            if not workspaces:
+                lines.append("none")
+            for name, ws in workspaces.items():
+                lines.append(f"- {name}: {ws.get('path')} ({ws.get('memory_namespace')})")
+            rendered.append("\n".join(lines))
+        elif action_type == "list_runbooks":
+            lines = ["Runbooks"]
+            runbooks = item.get("runbooks") or []
+            if not runbooks:
+                lines.append("none")
+            for runbook in runbooks:
+                lines.append(f"- {runbook.get('id')}: {runbook.get('title')}")
+            rendered.append("\n".join(lines))
+        elif action_type == "list_queue":
+            rendered.append(handle_queue())
+        elif action_type == "list_plans":
+            rendered.append(handle_plans())
+        elif action_type == "list_schedules":
+            rendered.append(handle_schedules())
+        elif action_type == "show_task":
+            task = item.get("task") or {}
+            task_id = task.get("task_id")
+            rendered.append(handle_show(task_id) if task_id else "I don't know which task yet.")
+        elif action_type == "show_logs":
+            text = (item.get("stdout") or "") + (("\n" + item.get("stderr")) if item.get("stderr") else "")
+            rendered.append(safe_text(text or "No logs found."))
+        elif action_type == "show_plan":
+            plan = item.get("plan") or {}
+            rendered.append(f"Plan: {plan.get('goal')}\nStatus: {plan.get('status')}")
+        elif action_type == "repair_plan":
+            plan_id = item.get("plan_id")
+            rendered.append(f"Repair prepared for plan {plan_id}.")
+        elif action_type == "retry_schedule":
+            rendered.append(f"Retried schedule.\nQueued: {item.get('queue_id')}")
+        elif action_type == "submit_run":
+            queued = item.get("item") or {}
+            rendered.append(f"Queued run\nQueue: {item.get('queue_id')}\nWorkspace: {queued.get('workspace')}\nAgent: {queued.get('agent')}")
+        elif action_type == "submit_iterate":
+            queued = item.get("item") or {}
+            rendered.append(f"Queued iterate\nQueue: {item.get('queue_id')}\nWorkspace: {queued.get('workspace')}\nAgent: {queued.get('agent')}\nCheck: {queued.get('check')}")
+        elif action_type == "create_plan":
+            rendered.append(f"Plan created\nPlan: {item.get('plan_id')}\nStatus: {item.get('status')}")
+        elif action_type == "pause":
+            rendered.append("Paused")
+        elif action_type == "resume":
+            rendered.append("Resumed")
+    update_user_session(
+        user_id,
+        last_intent=data.get("runbook_id"),
+        last_workspace=(data.get("inputs") or {}).get("workspace"),
+        last_plan_id=(data.get("inputs") or {}).get("plan_id"),
+        last_task_id=(data.get("inputs") or {}).get("task_id"),
+        last_schedule=(data.get("inputs") or {}).get("schedule"),
+    )
+    return safe_text("\n\n".join(rendered))
 
 
 def handle_assistant_text(text, user_id):
     if (text or "").strip().lower() in {"hi", "hello", "hey"}:
-        return "Hi — I’m your runtime-agents assistant. Ask me: what's going on?, check test-ws, what is blocked?, or fix failing tests in test-ws."
+        return "Hi — I’m your runtime-agents assistant. Ask me: what's going on?, list workspaces, what is blocked?, or fix tests in test-ws."
     session = user_session(user_id)
     route = run_agentctl(["assistant-route", text, "--json", "--session-json", json.dumps(session)])
     if not route["ok"]:
         return safe_text(route["stderr"] or route["stdout"] or "assistant route failed")
     payload = route["json"] or {}
-    if payload.get("intent") == "refuse_dangerous":
-        return payload.get("reply") or "I can't do that from Telegram."
+    if payload.get("status") == "blocked":
+        return payload.get("message") or "I can't do that from Telegram."
+    if payload.get("status") == "needs_clarification":
+        return payload.get("question") or "I need one more detail first."
     if payload.get("requires_confirmation"):
         actions = payload.get("actions") or []
-        update_user_session(user_id, pending_action=actions[0] if actions else None, last_workspace=payload.get("workspace"), last_plan_id=payload.get("plan_id"), last_intent=payload.get("intent"))
-        if payload.get("intent") == "fix_issue":
-            return f"This may edit workspace files, so I’ll create a plan first instead of running directly.\nWorkspace: {payload.get('workspace')}\nGoal: {payload.get('goal')}\nReply YES to confirm."
-        return "This needs confirmation. Reply YES to proceed."
-    actions = payload.get("actions") or []
-    if not actions:
-        return payload.get("reply") or "I don't have a safe action for that yet."
-    replies = [execute_assistant_action(action, user_id) for action in actions]
-    update_user_session(user_id, last_intent=payload.get("intent"), last_workspace=payload.get("workspace"), last_plan_id=payload.get("plan_id"), last_task_id=payload.get("task_id"), last_schedule=payload.get("schedule"))
-    return safe_text("\n\n".join(replies))
+        pending = dict(actions[0]) if actions else None
+        if pending is not None:
+            pending["_message"] = text
+        update_user_session(user_id, pending_action=pending, last_workspace=payload.get("workspace"), last_plan_id=payload.get("plan_id"), last_intent=payload.get("intent"))
+        return payload.get("confirm_message") or payload.get("message") or "This needs confirmation. Reply YES to proceed."
+    action = {"_message": text}
+    return execute_assistant_action(action, user_id)
 
 
 def handle_confirmation(text, user_id):

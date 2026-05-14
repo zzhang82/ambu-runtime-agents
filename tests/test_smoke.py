@@ -74,7 +74,15 @@ def make_env(base_dir: Path):
         },
     }
     (config_home / "agents.yaml").write_text(yaml.safe_dump(agents, sort_keys=False), encoding="utf-8")
-    (config_home / "workspaces.yaml").write_text("workspaces: {}\n", encoding="utf-8")
+    workspace_path = base_dir / "workspace"
+    workspace_path.mkdir()
+    workspaces = {
+        "test-ws": {
+            "path": str(workspace_path),
+            "memory_namespace": "project:test-ws",
+        }
+    }
+    (config_home / "workspaces.yaml").write_text(yaml.safe_dump(workspaces, sort_keys=False), encoding="utf-8")
     env = os.environ.copy()
     env["PYTHONPATH"] = str(ROOT / "src")
     env["RUNTIME_AGENTS_CONFIG_HOME"] = str(config_home)
@@ -96,6 +104,95 @@ class RuntimeAgentsSmokeTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         payload = json.loads(proc.stdout)
         self.assertEqual(payload["version"], "1.1.1")
+        self.assertEqual(payload["contract"], "agentctl-v1.3.0")
+
+    def test_runbook_commands(self):
+        listed = run_cli(["runbook", "list", "--json"], self.env)
+        self.assertEqual(listed.returncode, 0, listed.stderr)
+        items = json.loads(listed.stdout)
+        self.assertTrue(any(item["id"] == "list_workspaces" for item in items))
+
+        shown = run_cli(["runbook", "show", "list_workspaces", "--json"], self.env)
+        self.assertEqual(shown.returncode, 0, shown.stderr)
+        payload = json.loads(shown.stdout)
+        self.assertEqual(payload["id"], "list_workspaces")
+
+        validated = run_cli(["runbook", "validate", "--json"], self.env)
+        self.assertEqual(validated.returncode, 0, validated.stderr)
+        self.assertTrue(json.loads(validated.stdout)["ok"])
+
+    def test_assistant_exec_read_only(self):
+        proc = run_cli(["assistant-exec", "list", "workspaces", "--json"], self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertEqual(payload["status"], "matched")
+        self.assertEqual(payload["runbook_id"], "list_workspaces")
+        self.assertEqual(payload["execution"][0]["type"], "list_workspaces")
+
+    def test_assistant_exec_workspace_write_requires_confirmation(self):
+        proc = run_cli(["assistant-exec", "fix", "tests", "in", "test-ws", "--json"], self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertEqual(payload["status"], "pending_confirmation")
+        self.assertEqual(payload["runbook_id"], "fix_tests")
+
+    def test_assistant_route_repo_health(self):
+        proc = run_cli(["assistant-route", "repo", "health", "test-ws", "--json"], self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertEqual(payload["status"], "matched")
+        self.assertEqual(payload["runbook_id"], "repo_health_check")
+
+    def test_assistant_route_missing_workspace(self):
+        proc = run_cli(["assistant-route", "repo", "health", "--json"], self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertEqual(payload["status"], "needs_clarification")
+
+    def test_assistant_route_list_runbooks(self):
+        proc = run_cli(["assistant-route", "list", "runbooks", "--json"], self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertEqual(payload["runbook_id"], "list_runbooks")
+
+    def test_assistant_route_check_workspace(self):
+        proc = run_cli(["assistant-route", "check", "workspace", "test-ws", "--json"], self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertEqual(payload["runbook_id"], "check_workspace")
+
+    def test_assistant_route_fix_tests(self):
+        proc = run_cli(["assistant-route", "fix", "tests", "in", "test-ws", "--json"], self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertEqual(payload["runbook_id"], "fix_tests")
+        self.assertTrue(payload["requires_confirmation"])
+
+    def test_assistant_route_dangerous(self):
+        proc = run_cli(["assistant-route", "run", "rm", "-rf", "/", "--json"], self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertEqual(payload["status"], "blocked")
+
+    def test_assistant_exec_status_overview(self):
+        proc = run_cli(["assistant-exec", "what", "needs", "attention?", "--json"], self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertEqual(payload["runbook_id"], "status_overview")
+        self.assertEqual(payload["execution"][0]["type"], "status_overview")
+
+    def test_assistant_route_list_workspaces(self):
+        proc = run_cli(["assistant-route", "list", "workspaces", "--json"], self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertEqual(payload["runbook_id"], "list_workspaces")
+
+    def test_assistant_route_show_logs_needs_task(self):
+        proc = run_cli(["assistant-route", "show", "logs", "--json"], self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertEqual(payload["status"], "needs_clarification")
+        self.assertEqual(payload["runbook_id"], "show_logs")
 
     def test_config_validate_json(self):
         proc = run_cli(["config", "validate", "--json"], self.env)

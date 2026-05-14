@@ -15,6 +15,7 @@ from runtime_agents import assistant_router as assistant_router_mod
 from runtime_agents import paths as paths_mod
 from runtime_agents import plans as plans_mod
 from runtime_agents import policy as policy_mod
+from runtime_agents import runbooks as runbooks_mod
 from runtime_agents import schedules as schedules_mod
 from runtime_agents import state as state_mod
 from runtime_agents.models import TASK_STATUSES as MODEL_TASK_STATUSES
@@ -2695,11 +2696,253 @@ def assistant_route_cmd(args):
         except Exception as exc:
             raise SystemExit(f"Invalid --session-json: {exc}")
     payload = route_assistant_message(message, session=session)
-    if args.json:
-        print_json(payload)
-    else:
-        print_json(payload)
+    print_json(payload)
     return 0
+
+
+def runbook_list_cmd(args):
+    runbook_items = runbooks_mod.load_runbooks()
+    payload = [
+        {
+            "id": item.get("id"),
+            "title": item.get("title"),
+            "risk": item.get("risk"),
+            "requires_confirmation": item.get("requires_confirmation"),
+            "description": item.get("description"),
+            "source": item.get("source"),
+            "source_file": item.get("source_file"),
+            "phrases": item.get("phrases") or [],
+        }
+        for item in runbook_items
+    ]
+    print_json(payload)
+    return 0
+
+
+def runbook_show_cmd(args):
+    for item in runbooks_mod.load_runbooks():
+        if item.get("id") == args.runbook_id:
+            payload = dict(item)
+            payload["actions"] = item.get("actions") or []
+            payload["inputs"] = item.get("inputs") or {}
+            payload["response"] = item.get("response") or {}
+            print_json(payload)
+            return 0
+    raise SystemExit(f"Unknown runbook: {args.runbook_id}")
+
+
+def runbook_validate_cmd(args):
+    payload = runbooks_mod.validate_runbooks()
+    print_json(payload)
+    return 0 if payload.get("ok") else 1
+
+
+def assistant_exec_cmd(args):
+    tokens = list(args.message)
+    cleaned = []
+    i = 0
+    while i < len(tokens):
+        token = tokens[i]
+        if token == "--json":
+            args.json = True
+        elif token == "--session-json" and i + 1 < len(tokens):
+            args.session_json = tokens[i + 1]
+            i += 1
+        elif token.startswith("--session-json="):
+            args.session_json = token.split("=", 1)[1]
+        else:
+            cleaned.append(token)
+        i += 1
+    message = " ".join(cleaned).strip()
+    if not message:
+        raise SystemExit("Message is required")
+    session = {}
+    if args.session_json:
+        try:
+            session = json.loads(args.session_json)
+        except Exception as exc:
+            raise SystemExit(f"Invalid --session-json: {exc}")
+    payload = route_assistant_message(message, session=session)
+    if payload.get("status") != "matched":
+        print_json(payload)
+        return 0
+    if payload.get("risk") == "workspace_write":
+        result = dict(payload)
+        result["status"] = "pending_confirmation"
+        result["message"] = payload.get("confirm_message") or payload.get("message") or "Confirmation required."
+        print_json(result)
+        return 0
+
+    outputs = []
+    for action in payload.get("actions") or []:
+        action_type = action.get("type")
+        if action_type == "status_overview":
+            outputs.append({
+                "type": action_type,
+                "daemon": daemon_status_payload(),
+                "queue": list(latest_queue_items().values()),
+                "plans": list_plans(),
+                "schedules": [s for s in latest_schedules().values() if not s.get("removed")],
+            })
+        elif action_type == "list_workspaces":
+            outputs.append({"type": action_type, "workspaces": load_workspaces()})
+        elif action_type == "list_runbooks":
+            outputs.append({
+                "type": action_type,
+                "runbooks": [
+                    {
+                        "id": item.get("id"),
+                        "title": item.get("title"),
+                        "risk": item.get("risk"),
+                        "requires_confirmation": item.get("requires_confirmation"),
+                        "source": item.get("source"),
+                    }
+                    for item in runbooks_mod.load_runbooks()
+                ],
+            })
+        elif action_type == "list_queue":
+            outputs.append({"type": action_type, "items": list(latest_queue_items().values())})
+        elif action_type == "list_plans":
+            items = list_plans()
+            status_filter = action.get("status")
+            if status_filter:
+                items = [item for item in items if derive_plan_status(item).get("status") == status_filter]
+            outputs.append({"type": action_type, "plans": items})
+        elif action_type == "list_schedules":
+            outputs.append({"type": action_type, "schedules": [s for s in latest_schedules().values() if not s.get("removed")]})
+        elif action_type == "show_task":
+            task = latest_task(action.get("task_id"))
+            if not task:
+                raise SystemExit(f"Unknown task id: {action.get('task_id')}")
+            outputs.append({"type": action_type, "task": task})
+        elif action_type == "show_logs":
+            task = latest_task(action.get("task_id"))
+            if not task:
+                raise SystemExit(f"Unknown task id: {action.get('task_id')}")
+            run_dir = Path(task["run_dir"])
+            outputs.append({
+                "type": action_type,
+                "task_id": action.get("task_id"),
+                "stdout": (run_dir / "stdout.log").read_text(encoding="utf-8") if (run_dir / "stdout.log").exists() else "",
+                "stderr": (run_dir / "stderr.log").read_text(encoding="utf-8") if (run_dir / "stderr.log").exists() else "",
+            })
+        elif action_type == "show_plan":
+            outputs.append({"type": action_type, "plan": load_plan(action.get("plan_id"))})
+        elif action_type == "repair_plan":
+            plan = load_plan(action.get("plan_id"))
+            outputs.append({"type": action_type, "plan_id": action.get("plan_id"), "status": derive_plan_status(plan)})
+        elif action_type == "retry_schedule":
+            schedule = schedule_by_name(action.get("schedule"))
+            if not schedule or schedule.get("removed"):
+                raise SystemExit(f"Unknown schedule: {action.get('schedule')}")
+            item = queue_item_from_schedule(schedule)
+            item["created_from"] = "schedule_retry"
+            item["retry_of_queue_id"] = schedule.get("last_queue_id")
+            item["retry_of_task_id"] = schedule.get("last_task_id")
+            append_queue(item)
+            append_schedule({
+                "schedule_id": schedule.get("schedule_id"),
+                "name": schedule.get("name"),
+                "updated_at": now_iso(),
+                "last_retry_queue_id": item.get("queue_id"),
+            })
+            outputs.append({"type": action_type, "schedule_id": schedule.get("schedule_id"), "queue_id": item.get("queue_id"), "queued": True})
+        elif action_type == "pause":
+            ensure_state()
+            PAUSED_FILE.write_text(json.dumps({"paused": True, "updated_at": now_iso()}) + "\n", encoding="utf-8")
+            outputs.append({"type": action_type, "paused": True})
+        elif action_type == "resume":
+            ensure_state()
+            if PAUSED_FILE.exists():
+                PAUSED_FILE.unlink()
+            outputs.append({"type": action_type, "paused": False})
+        elif action_type == "submit_run":
+            config = load_config()
+            agents = config.get("agents") or {}
+            agent_name = action.get("agent") or "planner"
+            if agent_name not in agents:
+                raise SystemExit(f"Unknown agent: {agent_name}")
+            item = {
+                "queue_id": queue_id(),
+                "status": "queued",
+                "agent": agent_name,
+                "mode": "run",
+                "goal": action.get("goal") or "",
+                "cwd": str(resolve_workspace_options(action.get("workspace"))[1]),
+                "workspace": action.get("workspace"),
+                "memory_namespace": resolve_workspace_options(action.get("workspace"))[2],
+                "memory": {"enabled": True},
+                "check": None,
+                "max_rounds": None,
+                "created_at": now_iso(),
+                "started_at": None,
+                "ended_at": None,
+                "task_id": None,
+            }
+            append_queue(item)
+            outputs.append({"type": action_type, "queue_id": item.get("queue_id"), "queued": True, "item": item})
+        elif action_type == "submit_iterate":
+            config = load_config()
+            agents = config.get("agents") or {}
+            agent_name = action.get("agent") or "planner"
+            if agent_name not in agents:
+                raise SystemExit(f"Unknown agent: {agent_name}")
+            item = {
+                "queue_id": queue_id(),
+                "status": "queued",
+                "agent": agent_name,
+                "mode": "iterate",
+                "goal": action.get("goal") or "",
+                "cwd": str(resolve_workspace_options(action.get("workspace"))[1]),
+                "workspace": action.get("workspace"),
+                "memory_namespace": resolve_workspace_options(action.get("workspace"))[2],
+                "memory": {"enabled": True},
+                "check": action.get("check"),
+                "max_rounds": int(action.get("max_rounds") or 1),
+                "created_at": now_iso(),
+                "started_at": None,
+                "ended_at": None,
+                "task_id": None,
+            }
+            append_queue(item)
+            outputs.append({"type": action_type, "queue_id": item.get("queue_id"), "queued": True, "item": item})
+        elif action_type == "create_plan":
+            pid = plan_id()
+            workspace = action.get("workspace")
+            memory_namespace = resolve_workspace_options(workspace)[2]
+            plan = default_plan_for_goal(pid, workspace, memory_namespace, action.get("goal") or "")
+            pdir = plan_dir(pid)
+            pdir.mkdir(parents=True, exist_ok=False)
+            (pdir / "goal.txt").write_text((action.get("goal") or "") + "\n", encoding="utf-8")
+            save_plan(plan)
+            update_plan_status_file(plan)
+            outputs.append({"type": action_type, "plan_id": pid, "status": plan.get("status")})
+        else:
+            raise SystemExit(f"Assistant action is not enabled for assistant-exec: {action_type}")
+
+    result = dict(payload)
+    result["execution"] = outputs
+    print_json(result)
+    return 0
+
+
+def _runbook_parser(sub):
+    runbook = sub.add_parser("runbook")
+    runbook_sub = runbook.add_subparsers(dest="runbook_cmd", required=True)
+
+    runbook_list = runbook_sub.add_parser("list")
+    runbook_list.add_argument("--json", action="store_true")
+    runbook_list.set_defaults(func=runbook_list_cmd)
+
+    runbook_show = runbook_sub.add_parser("show")
+    runbook_show.add_argument("runbook_id")
+    runbook_show.add_argument("--json", action="store_true")
+    runbook_show.set_defaults(func=runbook_show_cmd)
+
+    runbook_validate = runbook_sub.add_parser("validate")
+    runbook_validate.add_argument("--json", action="store_true")
+    runbook_validate.set_defaults(func=runbook_validate_cmd)
+    return runbook
 
 
 def health_cmd(args):
@@ -2938,7 +3181,7 @@ def smoke_cmd(args):
 def version_cmd(args):
     payload = {
         "version": load_version(),
-        "contract": "agentctl-v1.1.0",
+        "contract": "agentctl-v1.3.0",
         "daemon": True,
         "telegram": True,
         "config": str(CONFIG_PATH),
@@ -3573,6 +3816,8 @@ def main():
     smoke.add_argument("--json", action="store_true")
     smoke.set_defaults(func=smoke_cmd)
 
+    _runbook_parser(sub)
+
     version = sub.add_parser("version")
     version.add_argument("--json", action="store_true")
     version.set_defaults(func=version_cmd)
@@ -3698,6 +3943,12 @@ def main():
     assistant_route.add_argument("--json", action="store_true")
     assistant_route.add_argument("--session-json")
     assistant_route.set_defaults(func=assistant_route_cmd)
+
+    assistant_exec = sub.add_parser("assistant-exec")
+    assistant_exec.add_argument("message", nargs=argparse.REMAINDER)
+    assistant_exec.add_argument("--json", action="store_true")
+    assistant_exec.add_argument("--session-json")
+    assistant_exec.set_defaults(func=assistant_exec_cmd)
 
     iterate = sub.add_parser("iterate")
     iterate.add_argument("agent")
