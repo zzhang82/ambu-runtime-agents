@@ -104,7 +104,7 @@ class RuntimeAgentsSmokeTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         payload = json.loads(proc.stdout)
         self.assertEqual(payload["version"], "1.1.1")
-        self.assertEqual(payload["contract"], "agentctl-v1.3.0")
+        self.assertEqual(payload["contract"], "agentctl-v1.3.1")
 
     def test_runbook_commands(self):
         listed = run_cli(["runbook", "list", "--json"], self.env)
@@ -119,7 +119,38 @@ class RuntimeAgentsSmokeTests(unittest.TestCase):
 
         validated = run_cli(["runbook", "validate", "--json"], self.env)
         self.assertEqual(validated.returncode, 0, validated.stderr)
-        self.assertTrue(json.loads(validated.stdout)["ok"])
+        validated_payload = json.loads(validated.stdout)
+        self.assertTrue(validated_payload["ok"])
+        self.assertEqual(validated_payload["invalid_count"], 0)
+
+        strict_validated = run_cli(["runbook", "validate", "--strict", "--json"], self.env)
+        self.assertEqual(strict_validated.returncode, 0, strict_validated.stderr)
+        self.assertTrue(json.loads(strict_validated.stdout)["ok"])
+
+    def test_runbook_validate_and_doctor_report_invalid_local_runbook(self):
+        bad_runbook = Path(self.env["RUNTIME_AGENTS_CONFIG_HOME"]) / "runbooks" / "bad.md"
+        bad_runbook.parent.mkdir(exist_ok=True)
+        bad_runbook.write_text("not frontmatter\n", encoding="utf-8")
+
+        validated = run_cli(["runbook", "validate", "--json"], self.env)
+        self.assertEqual(validated.returncode, 0, validated.stderr)
+        validated_payload = json.loads(validated.stdout)
+        self.assertTrue(validated_payload["ok"])
+        self.assertEqual(validated_payload["invalid_count"], 1)
+        self.assertEqual(validated_payload["skipped_count"], 1)
+
+        strict_validated = run_cli(["runbook", "validate", "--strict", "--json"], self.env)
+        self.assertEqual(strict_validated.returncode, 1, strict_validated.stderr)
+        strict_payload = json.loads(strict_validated.stdout)
+        self.assertFalse(strict_payload["ok"])
+
+        doctor = run_cli(["doctor", "--json"], self.env)
+        self.assertEqual(doctor.returncode, 1, doctor.stderr)
+        checks = json.loads(doctor.stdout)
+        by_name = {row["name"]: row for row in checks}
+        self.assertFalse(by_name["runbooks_invalid_count"]["ok"])
+        self.assertFalse(by_name["runbooks_strict_valid"]["ok"])
+        self.assertIn("runbooks_loadable", by_name)
 
     def test_assistant_exec_read_only(self):
         proc = run_cli(["assistant-exec", "list", "workspaces", "--json"], self.env)

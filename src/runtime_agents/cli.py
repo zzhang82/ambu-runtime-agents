@@ -11,6 +11,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from runtime_agents import actions as actions_mod
 from runtime_agents import assistant_router as assistant_router_mod
 from runtime_agents import paths as paths_mod
 from runtime_agents import plans as plans_mod
@@ -2386,6 +2387,16 @@ def doctor_cmd(args):
         config = {}
         add("config_parses", False, str(exc))
 
+    runbook_validation = runbooks_mod.validate_runbooks(strict=False)
+    strict_runbook_validation = runbooks_mod.validate_runbooks(strict=True)
+    add("runbooks_loadable", runbook_validation.get("ok", False), f"invalid={runbook_validation.get('invalid_count', 0)} skipped={runbook_validation.get('skipped_count', 0)}")
+    add("runbooks_invalid_count", runbook_validation.get("invalid_count", 0) == 0, str(runbook_validation.get("invalid_count", 0)))
+    add("runbooks_strict_valid", strict_runbook_validation.get("ok", False), f"invalid={strict_runbook_validation.get('invalid_count', 0)} skipped={strict_runbook_validation.get('skipped_count', 0)}")
+    for warning in runbook_validation.get("warnings") or []:
+        add("runbooks_warning", False, warning)
+
+    tools = config.get("tools") or {}
+
     tools = config.get("tools") or {}
     agents = config.get("agents") or {}
     for name, tool_cfg in tools.items():
@@ -2732,9 +2743,40 @@ def runbook_show_cmd(args):
 
 
 def runbook_validate_cmd(args):
-    payload = runbooks_mod.validate_runbooks()
+    payload = runbooks_mod.validate_runbooks(strict=bool(getattr(args, "strict", False)))
     print_json(payload)
     return 0 if payload.get("ok") else 1
+
+
+def retry_plan_subtask_action(plan_id_value, subtask_id_value):
+    plan = load_plan(plan_id_value)
+    subtask = next((s for s in plan.get("subtasks") or [] if str(s.get("id")) == str(subtask_id_value)), None)
+    if not subtask:
+        raise ValueError(f"Unknown subtask id: {subtask_id_value}")
+    status = derive_plan_status(plan)
+    row = next((r for r in status.get("subtasks") or [] if str(r.get("id")) == str(subtask_id_value)), None)
+    if not row or row.get("status") not in {"failed", "blocked"}:
+        raise ValueError(f"Subtask {subtask_id_value} is not failed/blocked; current status: {(row or {}).get('status')}")
+    failed_item = failed_queue_item_for_plan_subtask(plan_id_value, subtask_id_value)
+    if not failed_item:
+        raise ValueError(f"Subtask {subtask_id_value} has no failed queue item to retry")
+    item = queue_item_from_plan_retry(plan, subtask, failed_item)
+    append_queue(item)
+    event = append_plan_event(
+        plan_id_value,
+        {
+            "event": "retry",
+            "subtask_id": str(subtask_id_value),
+            "queue_id": item.get("queue_id"),
+            "retry_of_queue_id": failed_item.get("queue_id"),
+            "retry_of_task_id": failed_item.get("task_id"),
+        },
+    )
+    plan["status"] = "running"
+    plan["updated_at"] = now_iso()
+    save_plan(plan)
+    update_plan_status_file(plan)
+    return {"plan_id": plan_id_value, "subtask_id": str(subtask_id_value), "queued": True, "queue_id": item.get("queue_id"), "item": item, "event": event}
 
 
 def assistant_exec_cmd(args):
@@ -2763,165 +2805,34 @@ def assistant_exec_cmd(args):
         except Exception as exc:
             raise SystemExit(f"Invalid --session-json: {exc}")
     payload = route_assistant_message(message, session=session)
-    if payload.get("status") != "matched":
-        print_json(payload)
-        return 0
-    if payload.get("risk") == "workspace_write":
-        result = dict(payload)
-        result["status"] = "pending_confirmation"
-        result["message"] = payload.get("confirm_message") or payload.get("message") or "Confirmation required."
-        print_json(result)
-        return 0
-
-    outputs = []
-    for action in payload.get("actions") or []:
-        action_type = action.get("type")
-        if action_type == "status_overview":
-            outputs.append({
-                "type": action_type,
-                "daemon": daemon_status_payload(),
-                "queue": list(latest_queue_items().values()),
-                "plans": list_plans(),
-                "schedules": [s for s in latest_schedules().values() if not s.get("removed")],
-            })
-        elif action_type == "list_workspaces":
-            outputs.append({"type": action_type, "workspaces": load_workspaces()})
-        elif action_type == "list_runbooks":
-            outputs.append({
-                "type": action_type,
-                "runbooks": [
-                    {
-                        "id": item.get("id"),
-                        "title": item.get("title"),
-                        "risk": item.get("risk"),
-                        "requires_confirmation": item.get("requires_confirmation"),
-                        "source": item.get("source"),
-                    }
-                    for item in runbooks_mod.load_runbooks()
-                ],
-            })
-        elif action_type == "list_queue":
-            outputs.append({"type": action_type, "items": list(latest_queue_items().values())})
-        elif action_type == "list_plans":
-            items = list_plans()
-            status_filter = action.get("status")
-            if status_filter:
-                items = [item for item in items if derive_plan_status(item).get("status") == status_filter]
-            outputs.append({"type": action_type, "plans": items})
-        elif action_type == "list_schedules":
-            outputs.append({"type": action_type, "schedules": [s for s in latest_schedules().values() if not s.get("removed")]})
-        elif action_type == "show_task":
-            task = latest_task(action.get("task_id"))
-            if not task:
-                raise SystemExit(f"Unknown task id: {action.get('task_id')}")
-            outputs.append({"type": action_type, "task": task})
-        elif action_type == "show_logs":
-            task = latest_task(action.get("task_id"))
-            if not task:
-                raise SystemExit(f"Unknown task id: {action.get('task_id')}")
-            run_dir = Path(task["run_dir"])
-            outputs.append({
-                "type": action_type,
-                "task_id": action.get("task_id"),
-                "stdout": (run_dir / "stdout.log").read_text(encoding="utf-8") if (run_dir / "stdout.log").exists() else "",
-                "stderr": (run_dir / "stderr.log").read_text(encoding="utf-8") if (run_dir / "stderr.log").exists() else "",
-            })
-        elif action_type == "show_plan":
-            outputs.append({"type": action_type, "plan": load_plan(action.get("plan_id"))})
-        elif action_type == "repair_plan":
-            plan = load_plan(action.get("plan_id"))
-            outputs.append({"type": action_type, "plan_id": action.get("plan_id"), "status": derive_plan_status(plan)})
-        elif action_type == "retry_schedule":
-            schedule = schedule_by_name(action.get("schedule"))
-            if not schedule or schedule.get("removed"):
-                raise SystemExit(f"Unknown schedule: {action.get('schedule')}")
-            item = queue_item_from_schedule(schedule)
-            item["created_from"] = "schedule_retry"
-            item["retry_of_queue_id"] = schedule.get("last_queue_id")
-            item["retry_of_task_id"] = schedule.get("last_task_id")
-            append_queue(item)
-            append_schedule({
-                "schedule_id": schedule.get("schedule_id"),
-                "name": schedule.get("name"),
-                "updated_at": now_iso(),
-                "last_retry_queue_id": item.get("queue_id"),
-            })
-            outputs.append({"type": action_type, "schedule_id": schedule.get("schedule_id"), "queue_id": item.get("queue_id"), "queued": True})
-        elif action_type == "pause":
-            ensure_state()
-            PAUSED_FILE.write_text(json.dumps({"paused": True, "updated_at": now_iso()}) + "\n", encoding="utf-8")
-            outputs.append({"type": action_type, "paused": True})
-        elif action_type == "resume":
-            ensure_state()
-            if PAUSED_FILE.exists():
-                PAUSED_FILE.unlink()
-            outputs.append({"type": action_type, "paused": False})
-        elif action_type == "submit_run":
-            config = load_config()
-            agents = config.get("agents") or {}
-            agent_name = action.get("agent") or "planner"
-            if agent_name not in agents:
-                raise SystemExit(f"Unknown agent: {agent_name}")
-            item = {
-                "queue_id": queue_id(),
-                "status": "queued",
-                "agent": agent_name,
-                "mode": "run",
-                "goal": action.get("goal") or "",
-                "cwd": str(resolve_workspace_options(action.get("workspace"))[1]),
-                "workspace": action.get("workspace"),
-                "memory_namespace": resolve_workspace_options(action.get("workspace"))[2],
-                "memory": {"enabled": True},
-                "check": None,
-                "max_rounds": None,
-                "created_at": now_iso(),
-                "started_at": None,
-                "ended_at": None,
-                "task_id": None,
-            }
-            append_queue(item)
-            outputs.append({"type": action_type, "queue_id": item.get("queue_id"), "queued": True, "item": item})
-        elif action_type == "submit_iterate":
-            config = load_config()
-            agents = config.get("agents") or {}
-            agent_name = action.get("agent") or "planner"
-            if agent_name not in agents:
-                raise SystemExit(f"Unknown agent: {agent_name}")
-            item = {
-                "queue_id": queue_id(),
-                "status": "queued",
-                "agent": agent_name,
-                "mode": "iterate",
-                "goal": action.get("goal") or "",
-                "cwd": str(resolve_workspace_options(action.get("workspace"))[1]),
-                "workspace": action.get("workspace"),
-                "memory_namespace": resolve_workspace_options(action.get("workspace"))[2],
-                "memory": {"enabled": True},
-                "check": action.get("check"),
-                "max_rounds": int(action.get("max_rounds") or 1),
-                "created_at": now_iso(),
-                "started_at": None,
-                "ended_at": None,
-                "task_id": None,
-            }
-            append_queue(item)
-            outputs.append({"type": action_type, "queue_id": item.get("queue_id"), "queued": True, "item": item})
-        elif action_type == "create_plan":
-            pid = plan_id()
-            workspace = action.get("workspace")
-            memory_namespace = resolve_workspace_options(workspace)[2]
-            plan = default_plan_for_goal(pid, workspace, memory_namespace, action.get("goal") or "")
-            pdir = plan_dir(pid)
-            pdir.mkdir(parents=True, exist_ok=False)
-            (pdir / "goal.txt").write_text((action.get("goal") or "") + "\n", encoding="utf-8")
-            save_plan(plan)
-            update_plan_status_file(plan)
-            outputs.append({"type": action_type, "plan_id": pid, "status": plan.get("status")})
-        else:
-            raise SystemExit(f"Assistant action is not enabled for assistant-exec: {action_type}")
-
-    result = dict(payload)
-    result["execution"] = outputs
+    deps = {
+        "append_queue": append_queue,
+        "append_schedule": append_schedule,
+        "daemon_status_payload": daemon_status_payload,
+        "default_plan_for_goal": default_plan_for_goal,
+        "derive_plan_status": derive_plan_status,
+        "ensure_state": ensure_state,
+        "latest_queue_items": latest_queue_items,
+        "latest_schedules": latest_schedules,
+        "latest_task": latest_task,
+        "list_plans": list_plans,
+        "load_config": load_config,
+        "load_plan": load_plan,
+        "load_runbooks": runbooks_mod.load_runbooks,
+        "load_workspaces": load_workspaces,
+        "now_iso": now_iso,
+        "paused_file": PAUSED_FILE,
+        "plan_dir": plan_dir,
+        "plan_id": plan_id,
+        "queue_id": queue_id,
+        "queue_item_from_schedule": queue_item_from_schedule,
+        "resolve_workspace_options": resolve_workspace_options,
+        "retry_plan_subtask": retry_plan_subtask_action,
+        "save_plan": save_plan,
+        "schedule_by_name": schedule_by_name,
+        "update_plan_status_file": update_plan_status_file,
+    }
+    result = actions_mod.execute_route(payload, dry_run=False, deps=deps)
     print_json(result)
     return 0
 
@@ -2941,6 +2852,7 @@ def _runbook_parser(sub):
 
     runbook_validate = runbook_sub.add_parser("validate")
     runbook_validate.add_argument("--json", action="store_true")
+    runbook_validate.add_argument("--strict", action="store_true")
     runbook_validate.set_defaults(func=runbook_validate_cmd)
     return runbook
 
@@ -3181,7 +3093,7 @@ def smoke_cmd(args):
 def version_cmd(args):
     payload = {
         "version": load_version(),
-        "contract": "agentctl-v1.3.0",
+        "contract": "agentctl-v1.3.1",
         "daemon": True,
         "telegram": True,
         "config": str(CONFIG_PATH),

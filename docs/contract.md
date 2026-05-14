@@ -1,4 +1,4 @@
-# runtime-agents Contract (v1.3.0)
+# runtime-agents Contract (v1.3.1)
 
 ## Commands
 - agentctl
@@ -27,6 +27,7 @@
 - agentctl runbook list --json
 - agentctl runbook show <runbook_id> --json
 - agentctl runbook validate --json
+- agentctl runbook validate --strict --json
 - agentctl assistant-route <message> --json
 - agentctl assistant-exec <message> --json
 
@@ -41,10 +42,23 @@
 - `message` or `question`: user-facing explanation
 
 ## Assistant execution boundary
+- `assistant-exec` delegates typed action execution through `runtime_agents.actions`.
 - `assistant-exec` executes matched `read_only` actions directly.
 - `assistant-exec` returns `pending_confirmation` for `workspace_write` runbooks.
+- `assistant-exec` includes an `action_result` payload that reports executor outcome without replacing the existing route/execution shape.
 - Runbooks may only render typed actions from the allowlist.
 - Blocked action types include `shell`, `exec`, `bash`, `raw_command`, `python_eval`, and `arbitrary_agentctl`.
+
+## Runbook validation policy
+- Normal load skips invalid local runbooks so one bad override does not crash runtime routing.
+- `agentctl runbook validate --json` reports `invalid_count`, `skipped_count`, and `warnings` while succeeding when packaged defaults remain valid.
+- `agentctl runbook validate --strict --json` fails if any invalid runbook exists.
+- `agentctl doctor --json` surfaces runbook loadability and strict-validity checks in the standard flat check list.
+
+## Action result model
+- Typed execution is normalized through `ActionResult` with statuses `completed`, `pending_confirmation`, `blocked`, `unsupported`, and `failed`.
+- Successful read-only assistant execution preserves the matched route payload and appends `execution` plus `action_result`.
+- Non-success executor outcomes change top-level `status` only when execution is actually blocked, unsupported, failed, or awaiting confirmation.
 
 ## Boundary Rules
 - agentctl owns state, policy, runbook validation, and assistant execution.
@@ -79,5 +93,5 @@
 - `resume`
 
 ## Version contract
-- `agentctl version --json` reports contract `agentctl-v1.3.0`.
+- `agentctl version --json` reports contract `agentctl-v1.3.1`.
 - The repo source is the authority for installed `agentctl` and `agentbot` behavior.

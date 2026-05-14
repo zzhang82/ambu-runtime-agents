@@ -164,8 +164,13 @@ def load_runbook_from_path(path: Path) -> dict[str, Any]:
     return validate_runbook(parse_runbook_file(path))
 
 
-def load_runbooks() -> list[dict[str, Any]]:
-    by_id: dict[str, dict[str, Any]] = {}
+def inspect_runbooks(*, strict: bool = False) -> dict[str, Any]:
+    records: list[dict[str, Any]] = []
+    loadable_by_id: dict[str, dict[str, Any]] = {}
+    invalid_count = 0
+    skipped_count = 0
+    strict_ok = True
+
     for directory, source in ((packaged_runbooks_dir(), "packaged"), (config_runbooks_dir(), "config")):
         if not directory.exists() or not directory.is_dir():
             continue
@@ -174,11 +179,55 @@ def load_runbooks() -> list[dict[str, Any]]:
                 continue
             try:
                 runbook = load_runbook_from_path(path)
-            except RunbookValidationError:
-                continue
-            runbook["source"] = source
-            by_id[runbook["id"]] = runbook
-    return [by_id[key] for key in sorted(by_id.keys())]
+                runbook["source"] = source
+                replaced = loadable_by_id.get(runbook["id"])
+                loadable_by_id[runbook["id"]] = runbook
+                records.append({
+                    "id": runbook["id"],
+                    "title": runbook["title"],
+                    "file": path.name,
+                    "path": str(path),
+                    "source": source,
+                    "ok": True,
+                    "loaded": True,
+                    "skipped": False,
+                    "error": "",
+                    "warning": "",
+                })
+            except Exception as exc:
+                invalid_count += 1
+                skipped_count += 1
+                is_packaged = source == "packaged"
+                records.append({
+                    "id": None,
+                    "title": None,
+                    "file": path.name,
+                    "path": str(path),
+                    "source": source,
+                    "ok": False,
+                    "loaded": False,
+                    "skipped": True,
+                    "error": str(exc),
+                    "warning": "invalid packaged runbook" if is_packaged else "invalid config runbook skipped during load",
+                })
+                if is_packaged or strict:
+                    strict_ok = False
+
+    ok = strict_ok if strict else not any(item["source"] == "packaged" and not item["ok"] for item in records)
+    warnings = [item["warning"] for item in records if item.get("warning")]
+    return {
+        "ok": ok,
+        "strict": strict,
+        "invalid_count": invalid_count,
+        "skipped_count": skipped_count,
+        "warnings": warnings,
+        "runbooks": records,
+        "loadable": [loadable_by_id[key] for key in sorted(loadable_by_id.keys())],
+    }
+
+
+def load_runbooks() -> list[dict[str, Any]]:
+    return inspect_runbooks(strict=False)["loadable"]
 
 
 def render_template(value: Any, inputs: dict[str, str]) -> Any:
@@ -299,40 +348,13 @@ def match_runbook(message: str, *, session: dict[str, Any] | None = None, worksp
     return None
 
 
-def validate_runbooks() -> dict[str, Any]:
-    payload = []
-    overall_ok = True
-    seen_ids: set[str] = set()
-    for directory, source in ((packaged_runbooks_dir(), "packaged"), (config_runbooks_dir(), "config")):
-        if not directory.exists() or not directory.is_dir():
-            continue
-        for path in sorted(directory.iterdir()):
-            if not path.is_file() or path.suffix.lower() != ".md":
-                continue
-            try:
-                runbook = load_runbook_from_path(path)
-                duplicate = runbook["id"] in seen_ids and source == "packaged"
-                payload.append({
-                    "id": runbook["id"],
-                    "title": runbook["title"],
-                    "file": path.name,
-                    "path": str(path),
-                    "source": source,
-                    "ok": not duplicate,
-                    "error": "duplicate id" if duplicate else "",
-                })
-                if not duplicate:
-                    seen_ids.add(runbook["id"])
-                overall_ok = overall_ok and not duplicate
-            except Exception as exc:
-                payload.append({
-                    "id": None,
-                    "title": None,
-                    "file": path.name,
-                    "path": str(path),
-                    "source": source,
-                    "ok": False,
-                    "error": str(exc),
-                })
-                overall_ok = False
-    return {"ok": overall_ok, "runbooks": payload}
+def validate_runbooks(*, strict: bool = False) -> dict[str, Any]:
+    inspected = inspect_runbooks(strict=strict)
+    return {
+        "ok": inspected["ok"],
+        "strict": strict,
+        "invalid_count": inspected["invalid_count"],
+        "skipped_count": inspected["skipped_count"],
+        "warnings": inspected["warnings"],
+        "runbooks": inspected["runbooks"],
+    }

@@ -1,4 +1,4 @@
-# Architecture (v1.3.0)
+# Architecture (v1.3.1)
 
 runtime-agents is a local personal-agent control plane with deterministic assistant routing.
 
@@ -8,7 +8,7 @@ agentctl:
 - owns the CLI contract
 - owns state, policy, runbook validation, and assistant execution
 - loads packaged default runbooks and config override runbooks
-- renders typed actions from matched runbooks
+- routes through runbooks and delegates typed execution to `runtime_agents.actions`
 - is the source of truth for installed `agentctl` and `agentbot` behavior
 
 agentd:
@@ -37,9 +37,16 @@ Sources:
 Loading rules:
 - packaged runbooks load first
 - local config runbooks override packaged runbooks by `id`
-- all runbooks must pass schema validation before use
+- invalid local runbooks are skipped during normal runtime load and surfaced by validation/doctor
+- packaged runbook breakage is always treated as invalid
 - action types are restricted to a typed allowlist
 - blocked action types are rejected during validation
+- strict validation fails if any invalid runbook exists
+
+Validation surfaces:
+- `agentctl runbook validate --json` reports invalid/skipped runbooks additively
+- `agentctl runbook validate --strict --json` fails on any invalid runbook
+- `agentctl doctor --json` exposes runbook health as flat checks
 
 Matching rules:
 - routing is deterministic phrase matching only
@@ -56,9 +63,25 @@ Matching rules:
 - returns structured routing output
 
 `assistant-exec`:
+- parses and routes in `cli.py`
+- delegates typed action execution to `runtime_agents.actions`
 - executes matched `read_only` actions directly
 - returns `pending_confirmation` for `workspace_write` actions
 - keeps execution bounded to the typed action allowlist
+- normalizes execution outcomes through `ActionResult`
+
+This keeps routing data-driven while preserving a hard safety boundary around execution and a single executor boundary for future policy interception.
+
+## Executor boundary
+
+`runtime_agents.actions`:
+- owns the typed action allowlist execution path
+- returns explicit `ActionResult` values for success, confirmation, block, unsupported, and failure states
+- uses dependency injection from `cli.py` so execution can be tested without coupling routing to CLI globals
+
+This keeps routing data-driven while preserving a hard safety boundary around execution.
+
+## Current state artifacts
 
 This keeps routing data-driven while preserving a hard safety boundary around execution.
 

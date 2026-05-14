@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.1
+
+- Extracted typed assistant action execution into `runtime_agents.actions` with an explicit `ActionResult` model while keeping `assistant-exec` payload behavior stable.
+- Added normal vs strict runbook validation, including `agentctl runbook validate --strict` and surfaced invalid skipped runbooks in `agentctl doctor --json`.
+- Added focused regression coverage for executor behavior, runbook validation policy, and `assistant-exec` contract handling.
+
 ## 1.3.0
 
 - Made assistant routing runbook-first with packaged defaults under `src/runtime_agents/default_runbooks/` and local override support from `~/.config/runtime-agents/runbooks/`.

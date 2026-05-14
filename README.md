@@ -21,6 +21,14 @@ Edit src/runtime_agents/cli.py, then reinstall/test.
 
 ## Development workflow
 
+Runbook validation now has two modes:
+- `agentctl runbook validate --json` keeps runtime-friendly semantics and reports skipped invalid local runbooks.
+- `agentctl runbook validate --strict --json` fails if any invalid runbook exists.
+
+`assistant-exec` now routes through `runtime_agents.actions`, which centralizes typed action execution while preserving the existing JSON contract.
+
+## Development workflow
+
 ```bash
 cd ~/code/runtime-agents
 python3 -m venv .venv
