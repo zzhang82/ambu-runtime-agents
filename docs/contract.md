@@ -1,4 +1,4 @@
-# runtime-agents Contract (v1.4.0)
+# runtime-agents Contract (v1.5.0)
 
 ## Commands
 - agentctl
@@ -38,6 +38,8 @@
 - agentctl profile validate --json
 - agentctl profile run <profile_id> <goal...> --dry-run --json
 - agentctl profile plan <profile_id> <goal...> --json
+- agentctl guardrail list --json
+- agentctl guardrail eval --profile <profile_id> --tool <tool_id> --action <action> --json
 - agentctl assistant-route <message> --json
 - agentctl assistant-exec <message> --json
 
@@ -108,8 +110,16 @@
 - `pause`
 - `resume`
 
+## Guardrail metadata contract
+- `context_state` is derived from declared profile/tool/action metadata in v1.5.0.
+- `context_state` includes profile, workspace, aggregated data classes, capabilities, `tools_considered`, and explicit `tool_trace` only for selected tools.
+- `policy_decisions` is the stable serialized field name for guardrail decisions.
+- Guardrail decision priority is deterministic: `block` > `approval_required` > `allow`.
+- Unknown tools and tools outside `profile.allowed_tools` are blocked.
+- v1.5.0 does not yet track arbitrary tool-result trust propagation or live content flow during execution.
+
 ## Version contract
 - `agentctl version --json` reports the installed `runtime-agents` package version.
-- `agentctl version --json` reports contract `agentctl-v1.4.0`.
+- `agentctl version --json` reports contract `agentctl-v1.5.0`.
 - The repo source is the authority for installed `agentctl` and `agentbot` behavior.
 - Config-home `VERSION` may exist for local runtime metadata, but it is not the public release version source of truth.

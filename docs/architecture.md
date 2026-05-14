@@ -1,4 +1,4 @@
-# Architecture (v1.4.0)
+# Architecture (v1.5.0)
 
 runtime-agents is a local personal-agent control plane with deterministic assistant routing.
 
@@ -68,10 +68,12 @@ Tools:
 - live in `tools.yaml`
 - describe local tool metadata such as trust level, egress label, capabilities, and profile scope
 
-Release boundary for v1.4.0:
-- profiles/tools are visible, validatable, and routable
-- profile-aware CLI and runbook actions resolve metadata through the existing executor boundary
-- runtime trust propagation, context-aware guardrails, and egress enforcement are not implemented yet
+Release boundary for v1.5.0:
+- profiles/tools remain the metadata source of truth
+- `runtime_agents.guardrails` derives `context_state` from declared profile/tool/action metadata
+- profile-aware CLI and action execution now emit auditable `policy_decisions`
+- guardrail evaluation is deterministic and metadata-derived, not a full runtime content-flow tracker
+- live tool-result trust propagation and deeper egress inspection are still future work
 
 ## Assistant execution model
 
@@ -123,4 +125,5 @@ This keeps routing data-driven while preserving a hard safety boundary around ex
 - v1.2.0 introduced the extracted control modules and initial runbook surface
 - v1.3.x made runbooks the routing source of truth and extracted typed assistant execution
 - v1.4.0 adds first-class profile and tool metadata surfaces
-- future releases should build guardrails on top of the profile/tool metadata layer rather than reintroducing hardcoded intent branches
+- v1.5.0 adds metadata-derived context-aware guardrails and auditable policy decisions
+- future releases can extend this with live tool-result trust propagation rather than reintroducing hardcoded intent branches

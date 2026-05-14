@@ -25,13 +25,17 @@ Runbook validation now has two modes:
 - `agentctl runbook validate --json` keeps runtime-friendly semantics and reports skipped invalid local runbooks.
 - `agentctl runbook validate --strict --json` fails if any invalid runbook exists.
 
-v1.4.0 adds first-class profile and local tool registry surfaces:
+v1.5.0 adds metadata-derived context-aware guardrails on top of the profile and tool registry surfaces:
 - `agentctl tool list|show|validate --json`
 - `agentctl profile list|show|validate --json`
 - `agentctl profile run <profile> ... --dry-run --json`
 - `agentctl profile plan <profile> ... --json`
+- `agentctl guardrail list --json`
+- `agentctl guardrail eval --profile <profile> --tool <tool> --action <action> --json`
 
 `agentctl version --json` reports the installed package version. Packaged defaults for profiles, tools, and runbooks ship with the artifact, and `runtime-dev` requires a workspace unless one is pinned in config.
+
+`context_state` in v1.5 is derived from declared profile/tool/action metadata. It does not yet track arbitrary tool result flows or live untrusted content propagation.
 
 `assistant-exec` now routes through `runtime_agents.actions`, which centralizes typed action execution while preserving the existing JSON contract.
 

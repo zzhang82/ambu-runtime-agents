@@ -47,6 +47,71 @@ class PolicyDecision:
 
 
 @dataclass
+class ToolTrace:
+    tool_id: str
+    trust_level: str
+    data_classes: list[str] = field(default_factory=list)
+    capabilities: list[str] = field(default_factory=list)
+    egress: str = "none"
+    source: str | None = None
+
+    def to_payload(self) -> dict[str, Any]:
+        payload = {
+            "tool_id": self.tool_id,
+            "trust_level": self.trust_level,
+            "data_classes": self.data_classes,
+            "capabilities": self.capabilities,
+            "egress": self.egress,
+            "source": self.source,
+        }
+        return {key: value for key, value in payload.items() if value is not None}
+
+
+@dataclass
+class ContextState:
+    profile: str | None
+    workspace: str | None
+    saw_untrusted_input: bool
+    accessed_private_data: bool
+    external_egress_used: bool
+    data_classes: list[str] = field(default_factory=list)
+    capabilities: list[str] = field(default_factory=list)
+    tool_trace: list[ToolTrace] = field(default_factory=list)
+    tools_considered: list[str] = field(default_factory=list)
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "profile": self.profile,
+            "workspace": self.workspace,
+            "saw_untrusted_input": self.saw_untrusted_input,
+            "accessed_private_data": self.accessed_private_data,
+            "external_egress_used": self.external_egress_used,
+            "data_classes": self.data_classes,
+            "capabilities": self.capabilities,
+            "tool_trace": [trace.to_payload() for trace in self.tool_trace],
+            "tools_considered": self.tools_considered,
+        }
+
+
+@dataclass
+class GuardrailDecision:
+    decision: str
+    rule_id: str
+    reason: str
+    action: str
+    severity: str = "info"
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "decision": self.decision,
+            "rule_id": self.rule_id,
+            "reason": self.reason,
+            "action": self.action,
+            "severity": self.severity,
+        }
+
+
+@dataclass
 class Action:
     type: str
     payload: dict[str, Any] = field(default_factory=dict)

@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from runtime_agents import guardrails as guardrails_mod
 from runtime_agents.models import ActionResult
 
 
@@ -246,6 +247,27 @@ def execute_action(action: dict[str, Any], route: dict[str, Any] | None = None, 
                 workspace_override=action.get("workspace"),
                 agent_override=action.get("agent"),
             )
+            selected_tool_id = action.get("tool")
+            selected_tool = deps["tools_by_id"]().get(selected_tool_id) if selected_tool_id else None
+            context_state = guardrails_mod.build_context_state(
+                profile_id=action.get("profile_id"),
+                workspace=resolved.get("workspace"),
+                selected_tools=[selected_tool] if selected_tool else [],
+                considered_tools=resolved.get("allowed_tools") or [],
+                action=action_type,
+            )
+            guardrail_payload = guardrails_mod.evaluate_guardrails(
+                profile=resolved.get("profile"),
+                profile_id=action.get("profile_id"),
+                tool=selected_tool,
+                requested_tool_id=selected_tool_id,
+                action=action_type,
+                context_state=context_state,
+            )
+            if guardrail_payload.get("decision") == "block":
+                return ActionResult.blocked(action_type, risk, guardrail_payload.get("reason"))
+            if guardrail_payload.get("decision") == "approval_required":
+                return ActionResult.pending_confirmation(action_type, risk, guardrail_payload.get("reason"))
             payload = {
                 "type": action_type,
                 "profile_id": action.get("profile_id"),
@@ -255,6 +277,8 @@ def execute_action(action: dict[str, Any], route: dict[str, Any] | None = None, 
                 "memory_namespace": resolved.get("memory_namespace"),
                 "goal": action.get("goal") or resolved.get("profile", {}).get("default_run_goal") or "",
                 "allowed_tools": [tool.get("id") for tool in resolved.get("allowed_tools") or []],
+                "context_state": guardrail_payload.get("context_state"),
+                "policy_decisions": guardrail_payload.get("policy_decisions"),
             }
             return ActionResult.completed(action_type, risk, payload)
         if action_type == "profile_plan":
@@ -263,6 +287,27 @@ def execute_action(action: dict[str, Any], route: dict[str, Any] | None = None, 
                 workspace_override=action.get("workspace"),
                 agent_override=action.get("agent"),
             )
+            selected_tool_id = action.get("tool")
+            selected_tool = deps["tools_by_id"]().get(selected_tool_id) if selected_tool_id else None
+            context_state = guardrails_mod.build_context_state(
+                profile_id=action.get("profile_id"),
+                workspace=resolved.get("workspace"),
+                selected_tools=[selected_tool] if selected_tool else [],
+                considered_tools=resolved.get("allowed_tools") or [],
+                action=action_type,
+            )
+            guardrail_payload = guardrails_mod.evaluate_guardrails(
+                profile=resolved.get("profile"),
+                profile_id=action.get("profile_id"),
+                tool=selected_tool,
+                requested_tool_id=selected_tool_id,
+                action=action_type,
+                context_state=context_state,
+            )
+            if guardrail_payload.get("decision") == "block":
+                return ActionResult.blocked(action_type, risk, guardrail_payload.get("reason"))
+            if guardrail_payload.get("decision") == "approval_required":
+                return ActionResult.pending_confirmation(action_type, risk, guardrail_payload.get("reason"))
             goal = action.get("goal") or resolved.get("profile", {}).get("default_plan_goal") or ""
             if not goal:
                 return ActionResult.failed(action_type, risk, "Goal is required")
@@ -276,12 +321,14 @@ def execute_action(action: dict[str, Any], route: dict[str, Any] | None = None, 
                 "allowed_agents": resolved.get("profile", {}).get("allowed_agents") or [],
                 "allowed_tools": resolved.get("profile", {}).get("allowed_tools") or [],
             }
+            plan["context_state"] = guardrail_payload.get("context_state")
+            plan["policy_decisions"] = guardrail_payload.get("policy_decisions")
             pdir = deps["plan_dir"](pid)
             pdir.mkdir(parents=True, exist_ok=False)
             (pdir / "goal.txt").write_text(goal + "\n", encoding="utf-8")
             deps["save_plan"](plan)
             deps["update_plan_status_file"](plan)
-            return ActionResult.completed(action_type, risk, {"type": action_type, "plan_id": pid, "status": plan.get("status"), "profile_id": action.get("profile_id")})
+            return ActionResult.completed(action_type, risk, {"type": action_type, "plan_id": pid, "status": plan.get("status"), "profile_id": action.get("profile_id"), "context_state": guardrail_payload.get("context_state"), "policy_decisions": guardrail_payload.get("policy_decisions")})
         return ActionResult.unsupported(action_type, risk, f"Assistant action is not enabled for assistant-exec: {action_type}")
     except Exception as exc:
         return ActionResult.failed(action_type, risk, str(exc))

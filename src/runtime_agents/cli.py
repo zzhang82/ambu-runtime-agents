@@ -14,6 +14,7 @@ from pathlib import Path
 
 from runtime_agents import actions as actions_mod
 from runtime_agents import assistant_router as assistant_router_mod
+from runtime_agents import guardrails as guardrails_mod
 from runtime_agents import paths as paths_mod
 from runtime_agents import plans as plans_mod
 from runtime_agents import policy as policy_mod
@@ -2453,6 +2454,30 @@ def doctor_cmd(args):
     loaded_profile_ids = {item["id"] for item in load_profiles_registry()}
     add("tools_registry_present", bool(loaded_tool_ids), ",".join(sorted(loaded_tool_ids)))
     add("profiles_registry_present", bool(loaded_profile_ids), ",".join(sorted(loaded_profile_ids)))
+    guardrail_rules = guardrails_mod.list_guardrail_rules().get("rules") or []
+    add("guardrails_loadable", bool(guardrail_rules), str(len(guardrail_rules)))
+    add("guardrails_rules_count", len(guardrail_rules) > 0, str(len(guardrail_rules)))
+    try:
+        runtime_dev = profiles_by_id().get("runtime-dev")
+        runtime_tool = tools_by_id().get("workspace_files") or next(iter(tools_by_id().values()), None)
+        context_state = guardrails_mod.build_context_state(
+            profile_id="runtime-dev" if runtime_dev else None,
+            workspace="test-ws" if runtime_dev else None,
+            selected_tools=[runtime_tool] if runtime_tool else [],
+            considered_tools=[runtime_tool] if runtime_tool else [],
+            action="profile_run",
+        )
+        eval_payload = guardrails_mod.evaluate_guardrails(
+            profile=runtime_dev,
+            profile_id="runtime-dev" if runtime_dev else None,
+            tool=runtime_tool,
+            requested_tool_id=runtime_tool.get("id") if runtime_tool else None,
+            action="profile_run",
+            context_state=context_state,
+        )
+        add("guardrails_eval_smoke", eval_payload.get("decision") in {"allow", "approval_required", "block"}, eval_payload.get("decision") or "")
+    except Exception as exc:
+        add("guardrails_eval_smoke", False, str(exc))
 
     for profile in load_profiles_registry():
         allowed_tools = profile.get("allowed_tools") or []
@@ -2650,6 +2675,11 @@ def normalize_profile_goal_args(args, *, allow_timeout=False):
             i += 1
         elif token.startswith("--agent="):
             args.agent = token.split("=", 1)[1]
+        elif token == "--tool" and i + 1 < len(tokens):
+            args.tool = tokens[i + 1]
+            i += 1
+        elif token.startswith("--tool="):
+            args.tool = token.split("=", 1)[1]
         elif token == "--json":
             args.json = True
         elif token == "--dry-run":
@@ -2664,6 +2694,43 @@ def normalize_profile_goal_args(args, *, allow_timeout=False):
         i += 1
     args.goal = goal
     return args
+
+
+def evaluate_profile_guardrails(*, resolved, action, tool_id=None):
+    tool = None
+    if tool_id:
+        tool = tools_by_id().get(tool_id)
+    context_state = guardrails_mod.build_context_state(
+        profile_id=resolved.get("profile_id"),
+        workspace=resolved.get("workspace"),
+        selected_tools=[tool] if tool else [],
+        considered_tools=resolved.get("allowed_tools") or [],
+        action=action,
+    )
+    payload = guardrails_mod.evaluate_guardrails(
+        profile=resolved.get("profile"),
+        profile_id=resolved.get("profile_id"),
+        tool=tool,
+        requested_tool_id=tool_id,
+        action=action,
+        context_state=context_state,
+    )
+    payload["profile"] = resolved.get("profile_id")
+    payload["tool"] = tool_id
+    payload["action"] = action
+    return payload
+
+
+def guardrail_list_cmd(args):
+    print_json(guardrails_mod.list_guardrail_rules())
+    return 0
+
+
+def guardrail_eval_cmd(args):
+    resolved = resolve_profile(args.profile_id, workspace_override=args.workspace, agent_override=args.agent, require_workspace=False)
+    payload = evaluate_profile_guardrails(resolved=resolved, action=args.action, tool_id=args.tool_id)
+    print_json(payload)
+    return 0 if payload.get("decision") == "allow" else 1
 
 
 def profile_list_cmd(args):
@@ -2711,6 +2778,54 @@ def profile_run_cmd(args):
     goal = " ".join(args.goal).strip() or (resolved["profile"].get("default_run_goal") or "")
     if not goal:
         raise SystemExit("Goal is required")
+    guardrail_payload = evaluate_profile_guardrails(resolved=resolved, action="profile_run", tool_id=getattr(args, "tool", None))
+    if getattr(args, "dry_run", False):
+        status = "dry_run_ok"
+        exit_code = 0
+        if guardrail_payload.get("decision") == "block":
+            status = "blocked"
+            exit_code = 2
+        elif guardrail_payload.get("decision") == "approval_required":
+            status = "approval_required"
+            exit_code = 2
+        print_json({
+            "would_run": status == "dry_run_ok",
+            "status": status,
+            "profile": args.profile_id,
+            "agent": resolved["agent"],
+            "workspace": resolved["workspace"],
+            "cwd": resolved["cwd"],
+            "memory_namespace": resolved["memory_namespace"],
+            "goal": goal,
+            "allowed_tools": [tool.get("id") for tool in resolved.get("allowed_tools") or []],
+            "tool": getattr(args, "tool", None),
+            "context_state": guardrail_payload.get("context_state"),
+            "policy_decisions": guardrail_payload.get("policy_decisions"),
+            "decision": guardrail_payload.get("decision"),
+            "rule_id": guardrail_payload.get("rule_id"),
+            "reason": guardrail_payload.get("reason"),
+        })
+        return exit_code
+    if guardrail_payload.get("decision") == "block":
+        print_json({
+            "status": "blocked",
+            "profile": args.profile_id,
+            "context_state": guardrail_payload.get("context_state"),
+            "policy_decisions": guardrail_payload.get("policy_decisions"),
+            "rule_id": guardrail_payload.get("rule_id"),
+            "reason": guardrail_payload.get("reason"),
+        })
+        return 2
+    if guardrail_payload.get("decision") == "approval_required":
+        print_json({
+            "status": "approval_required",
+            "profile": args.profile_id,
+            "context_state": guardrail_payload.get("context_state"),
+            "policy_decisions": guardrail_payload.get("policy_decisions"),
+            "rule_id": guardrail_payload.get("rule_id"),
+            "reason": guardrail_payload.get("reason"),
+        })
+        return 2
     run_args = argparse.Namespace(
         agent=resolved["agent"],
         prompt=[goal],
@@ -2721,11 +2836,105 @@ def profile_run_cmd(args):
         memory_preview=False,
         fallback=False,
         approve=[],
-        dry_run=bool(args.dry_run),
+        dry_run=False,
         timeout=args.timeout,
         json=True,
     )
     return run_task(run_args)
+
+
+# v1.5.0 guardrails note: context_state is derived from declared profile/tool/action metadata,
+# not from full runtime observation of tool results or arbitrary content propagation.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 def profile_plan_cmd(args):
@@ -2736,6 +2945,27 @@ def profile_plan_cmd(args):
         raise SystemExit("Goal is required")
     if not resolved["workspace"]:
         raise SystemExit(f"Profile '{args.profile_id}' requires a workspace for planning.")
+    guardrail_payload = evaluate_profile_guardrails(resolved=resolved, action="profile_plan", tool_id=getattr(args, "tool", None))
+    if guardrail_payload.get("decision") == "block":
+        print_json({
+            "status": "blocked",
+            "profile": args.profile_id,
+            "context_state": guardrail_payload.get("context_state"),
+            "policy_decisions": guardrail_payload.get("policy_decisions"),
+            "rule_id": guardrail_payload.get("rule_id"),
+            "reason": guardrail_payload.get("reason"),
+        })
+        return 2
+    if guardrail_payload.get("decision") == "approval_required":
+        print_json({
+            "status": "approval_required",
+            "profile": args.profile_id,
+            "context_state": guardrail_payload.get("context_state"),
+            "policy_decisions": guardrail_payload.get("policy_decisions"),
+            "rule_id": guardrail_payload.get("rule_id"),
+            "reason": guardrail_payload.get("reason"),
+        })
+        return 2
     pid = plan_id()
     plan = default_plan_for_goal(pid, resolved["workspace"], resolved["memory_namespace"], goal)
     plan["profile_id"] = args.profile_id
@@ -2744,6 +2974,8 @@ def profile_plan_cmd(args):
         "allowed_agents": resolved["profile"].get("allowed_agents") or [],
         "allowed_tools": resolved["profile"].get("allowed_tools") or [],
     }
+    plan["context_state"] = guardrail_payload.get("context_state")
+    plan["policy_decisions"] = guardrail_payload.get("policy_decisions")
     errors = validate_plan_shape(plan)
     if errors:
         plan["status"] = "rejected"
@@ -2753,7 +2985,15 @@ def profile_plan_cmd(args):
     (pdir / "goal.txt").write_text(goal + "\n", encoding="utf-8")
     save_plan(plan)
     update_plan_status_file(plan)
-    print_json({"plan_id": pid, "status": plan.get("status"), "plan_dir": str(pdir), "profile_id": args.profile_id, "validation_errors": plan.get("validation_errors", [])})
+    print_json({
+        "plan_id": pid,
+        "status": plan.get("status"),
+        "plan_dir": str(pdir),
+        "profile_id": args.profile_id,
+        "validation_errors": plan.get("validation_errors", []),
+        "context_state": guardrail_payload.get("context_state"),
+        "policy_decisions": guardrail_payload.get("policy_decisions"),
+    })
     return 0 if not errors else 2
 
 
@@ -3158,35 +3398,40 @@ def run_selftest_step(name, cmd, expect_code=0):
 def selftest_cmd(args):
     steps = []
     agentctl = resolve_agentctl_bin()
-    steps.append(run_selftest_step("doctor", [agentctl, "doctor"]))
-    steps.append(run_selftest_step("config_validate", [agentctl, "config", "validate"]))
-    steps.append(run_selftest_step("tool_list_json", [agentctl, "tool", "list", "--json"]))
-    steps.append(run_selftest_step("tool_show_web_fetch", [agentctl, "tool", "show", "web_fetch", "--json"]))
-    steps.append(run_selftest_step("tool_validate_json", [agentctl, "tool", "validate", "--json"]))
-    steps.append(run_selftest_step("profile_list_json", [agentctl, "profile", "list", "--json"]))
-    steps.append(run_selftest_step("profile_show_runtime_dev", [agentctl, "profile", "show", "runtime-dev", "--json"]))
-    steps.append(run_selftest_step("profile_validate_json", [agentctl, "profile", "validate", "--json"]))
-    steps.append(run_selftest_step("profile_run_dry_run", [agentctl, "profile", "run", "runtime-dev", "inspect", "repo", "status", "--workspace", "test-ws", "--dry-run", "--json"]))
-    profile_plan_step = run_selftest_step("profile_plan", [agentctl, "profile", "plan", "runtime-dev", "improve", "tests", "--workspace", "test-ws", "--json"])
+    agentctl_cmd = agentctl if isinstance(agentctl, list) else [agentctl]
+    steps.append(run_selftest_step("doctor", [*agentctl_cmd, "doctor"]))
+    steps.append(run_selftest_step("config_validate", [*agentctl_cmd, "config", "validate"]))
+    steps.append(run_selftest_step("tool_list_json", [*agentctl_cmd, "tool", "list", "--json"]))
+    steps.append(run_selftest_step("tool_show_web_fetch", [*agentctl_cmd, "tool", "show", "web_fetch", "--json"]))
+    steps.append(run_selftest_step("tool_validate_json", [*agentctl_cmd, "tool", "validate", "--json"]))
+    steps.append(run_selftest_step("guardrail_list", [*agentctl_cmd, "guardrail", "list", "--json"]))
+    steps.append(run_selftest_step("guardrail_eval_allow", [*agentctl_cmd, "guardrail", "eval", "--profile", "runtime-dev", "--tool", "repo_read", "--action", "profile_run", "--json"]))
+    steps.append(run_selftest_step("guardrail_eval_unknown_tool", [*agentctl_cmd, "guardrail", "eval", "--profile", "runtime-dev", "--tool", "missing-tool", "--action", "profile_run", "--json"], expect_code=1))
+    steps.append(run_selftest_step("guardrail_eval_block_purchase", [*agentctl_cmd, "guardrail", "eval", "--profile", "runtime-dev", "--action", "external_purchase", "--json"], expect_code=1))
+    steps.append(run_selftest_step("profile_list_json", [*agentctl_cmd, "profile", "list", "--json"]))
+    steps.append(run_selftest_step("profile_show_runtime_dev", [*agentctl_cmd, "profile", "show", "runtime-dev", "--json"]))
+    steps.append(run_selftest_step("profile_validate_json", [*agentctl_cmd, "profile", "validate", "--json"]))
+    steps.append(run_selftest_step("profile_run_dry_run", [*agentctl_cmd, "profile", "run", "runtime-dev", "inspect", "repo", "status", "--workspace", "test-ws", "--dry-run", "--json"]))
+    profile_plan_step = run_selftest_step("profile_plan", [*agentctl_cmd, "profile", "plan", "runtime-dev", "improve", "tests", "--workspace", "test-ws", "--json"])
     steps.append(profile_plan_step)
     if profile_plan_step["ok"]:
         try:
             profile_plan_payload = json.loads(profile_plan_step["stdout"])
             profile_plan_id = profile_plan_payload.get("plan_id")
             if profile_plan_id:
-                profile_plan_status = run_selftest_step("profile_plan_show", [agentctl, "plan", "show", profile_plan_id, "--json"])
+                profile_plan_status = run_selftest_step("profile_plan_show", [*agentctl_cmd, "plan", "show", profile_plan_id, "--json"])
                 steps.append(profile_plan_status)
         except Exception as exc:
             steps.append({"name": "profile_plan_show", "ok": False, "returncode": None, "expected_returncode": 0, "stdout": "", "stderr": str(exc)})
     else:
         steps.append({"name": "profile_plan_show", "ok": False, "returncode": None, "expected_returncode": 0, "stdout": "", "stderr": "profile plan failed"})
-    steps.append(run_selftest_step("inspect_coder", [agentctl, "inspect", "coder"]))
-    steps.append(run_selftest_step("dry_run_git_push_blocks", [agentctl, "run", "coder", "Please git push this change", "--dry-run"], expect_code=2))
-    steps.append(run_selftest_step("dry_run_git_push_approved", [agentctl, "run", "coder", "Please git push this change", "--approve", "git_push", "--dry-run"]))
-    steps.append(run_selftest_step("dry_run_partial_approval_blocks", [agentctl, "run", "coder", "Please git push and deploy this change", "--approve", "git_push", "--dry-run"], expect_code=2))
-    steps.append(run_selftest_step("iterate_dry_run_blocks_push", [agentctl, "iterate", "coder", "push when tests pass", "--check", "true", "--dry-run"], expect_code=2))
-    steps.append(run_selftest_step("iterate_check_passes_without_agent", [agentctl, "iterate", "planner", "Do nothing", "--check", "true", "--max-rounds", "1"], expect_code=0))
-    iter_step = run_selftest_step("iterate_json_tail", [agentctl, "iterate", "planner", "Do nothing", "--check", "true", "--max-rounds", "1", "--json", "--tail", "1"], expect_code=0)
+    steps.append(run_selftest_step("inspect_coder", [*agentctl_cmd, "inspect", "coder"]))
+    steps.append(run_selftest_step("dry_run_git_push_blocks", [*agentctl_cmd, "run", "coder", "Please git push this change", "--dry-run"], expect_code=2))
+    steps.append(run_selftest_step("dry_run_git_push_approved", [*agentctl_cmd, "run", "coder", "Please git push this change", "--approve", "git_push", "--dry-run"]))
+    steps.append(run_selftest_step("dry_run_partial_approval_blocks", [*agentctl_cmd, "run", "coder", "Please git push and deploy this change", "--approve", "git_push", "--dry-run"], expect_code=2))
+    steps.append(run_selftest_step("iterate_dry_run_blocks_push", [*agentctl_cmd, "iterate", "coder", "push when tests pass", "--check", "true", "--dry-run"], expect_code=2))
+    steps.append(run_selftest_step("iterate_check_passes_without_agent", [*agentctl_cmd, "iterate", "planner", "Do nothing", "--check", "true", "--max-rounds", "1"], expect_code=0))
+    iter_step = run_selftest_step("iterate_json_tail", [*agentctl_cmd, "iterate", "planner", "Do nothing", "--check", "true", "--max-rounds", "1", "--json", "--tail", "1"], expect_code=0)
     steps.append(iter_step)
     iter_task_id = None
     if iter_step["ok"]:
@@ -3195,12 +3440,12 @@ def selftest_cmd(args):
         except Exception:
             iter_task_id = None
     if iter_task_id:
-        steps.append(run_selftest_step("iterate_show_rounds", [agentctl, "show", iter_task_id, "--json"]))
-        steps.append(run_selftest_step("iterate_logs_round0_result", [agentctl, "logs", iter_task_id, "--round", "0", "--file", "result"]))
+        steps.append(run_selftest_step("iterate_show_rounds", [*agentctl_cmd, "show", iter_task_id, "--json"]))
+        steps.append(run_selftest_step("iterate_logs_round0_result", [*agentctl_cmd, "logs", iter_task_id, "--round", "0", "--file", "result"]))
     else:
         steps.append({"name": "iterate_show_rounds", "ok": False, "returncode": None, "expected_returncode": 0, "stdout": "", "stderr": "missing iterate task id"})
         steps.append({"name": "iterate_logs_round0_result", "ok": False, "returncode": None, "expected_returncode": 0, "stdout": "", "stderr": "missing iterate task id"})
-    submit_step = run_selftest_step("queue_submit", [agentctl, "submit", "planner", "selftest queued noop", "--check", "true", "--max-rounds", "1", "--cwd", str(Path.cwd())])
+    submit_step = run_selftest_step("queue_submit", [*agentctl_cmd, "submit", "planner", "selftest queued noop", "--check", "true", "--max-rounds", "1", "--cwd", str(Path.cwd())])
     steps.append(submit_step)
     queue_id_value = None
     if submit_step["ok"]:
@@ -3209,8 +3454,8 @@ def selftest_cmd(args):
         except Exception:
             queue_id_value = None
     if queue_id_value:
-        steps.append(run_selftest_step("queue_show", [agentctl, "queue", "show", queue_id_value, "--json"]))
-        steps.append(run_selftest_step("queue_list_json", [agentctl, "queue", "--json"]))
+        steps.append(run_selftest_step("queue_show", [*agentctl_cmd, "queue", "show", queue_id_value, "--json"]))
+        steps.append(run_selftest_step("queue_list_json", [*agentctl_cmd, "queue", "--json"]))
         cancel_queue_item(queue_id_value, "selftest cleanup")
     else:
         steps.append({"name": "queue_show", "ok": False, "returncode": None, "expected_returncode": 0, "stdout": "", "stderr": "missing queue id"})
@@ -3219,13 +3464,13 @@ def selftest_cmd(args):
     existing_schedule = schedule_by_name(schedule_name)
     if existing_schedule and not existing_schedule.get("removed"):
         append_schedule({"schedule_id": existing_schedule.get("schedule_id"), "name": schedule_name, "enabled": False, "removed": True, "removed_at": now_iso(), "updated_at": now_iso()})
-    schedule_add_step = run_selftest_step("schedule_add", [agentctl, "schedule", "add", schedule_name, "--workspace", "test-ws", "--type", "run", "--agent", "planner", "--goal", "selftest scheduled noop", "--cron", "* * * * *"])
+    schedule_add_step = run_selftest_step("schedule_add", [*agentctl_cmd, "schedule", "add", schedule_name, "--workspace", "test-ws", "--type", "run", "--agent", "planner", "--goal", "selftest scheduled noop", "--cron", "* * * * *"])
     steps.append(schedule_add_step)
     if schedule_add_step["ok"]:
-        steps.append(run_selftest_step("schedule_show", [agentctl, "schedule", "show", schedule_name, "--json"]))
-        steps.append(run_selftest_step("schedule_list_json", [agentctl, "schedule", "list", "--json"]))
-        steps.append(run_selftest_step("schedule_run_due_dry_run", [agentctl, "schedule", "run-due", "--dry-run", "--json"]))
-        schedule_retry_step = run_selftest_step("schedule_retry", [agentctl, "schedule", "retry", schedule_name])
+        steps.append(run_selftest_step("schedule_show", [*agentctl_cmd, "schedule", "show", schedule_name, "--json"]))
+        steps.append(run_selftest_step("schedule_list_json", [*agentctl_cmd, "schedule", "list", "--json"]))
+        steps.append(run_selftest_step("schedule_run_due_dry_run", [*agentctl_cmd, "schedule", "run-due", "--dry-run", "--json"]))
+        schedule_retry_step = run_selftest_step("schedule_retry", [*agentctl_cmd, "schedule", "retry", schedule_name])
         if schedule_retry_step["ok"]:
             try:
                 schedule_retry_payload = json.loads(schedule_retry_step["stdout"])
@@ -3235,14 +3480,14 @@ def selftest_cmd(args):
                 schedule_retry_step["ok"] = False
                 schedule_retry_step["stderr"] = str(exc)
         steps.append(schedule_retry_step)
-        steps.append(run_selftest_step("schedule_remove", [agentctl, "schedule", "remove", schedule_name]))
+        steps.append(run_selftest_step("schedule_remove", [*agentctl_cmd, "schedule", "remove", schedule_name]))
     else:
         steps.append({"name": "schedule_show", "ok": False, "returncode": None, "expected_returncode": 0, "stdout": "", "stderr": "schedule add failed"})
         steps.append({"name": "schedule_list_json", "ok": False, "returncode": None, "expected_returncode": 0, "stdout": "", "stderr": "schedule add failed"})
         steps.append({"name": "schedule_run_due_dry_run", "ok": False, "returncode": None, "expected_returncode": 0, "stdout": "", "stderr": "schedule add failed"})
         steps.append({"name": "schedule_retry", "ok": False, "returncode": None, "expected_returncode": 0, "stdout": "", "stderr": "schedule add failed"})
         steps.append({"name": "schedule_remove", "ok": False, "returncode": None, "expected_returncode": 0, "stdout": "", "stderr": "schedule add failed"})
-    plan_step = run_selftest_step("plan_create", [agentctl, "plan", "create", "--workspace", "test-ws", "selftest plan goal"])
+    plan_step = run_selftest_step("plan_create", [*agentctl_cmd, "plan", "create", "--workspace", "test-ws", "selftest plan goal"])
     steps.append(plan_step)
     plan_id_value = None
     if plan_step["ok"]:
@@ -3251,10 +3496,10 @@ def selftest_cmd(args):
         except Exception:
             plan_id_value = None
     if plan_id_value:
-        steps.append(run_selftest_step("plan_show", [agentctl, "plan", "show", plan_id_value, "--json"]))
-        steps.append(run_selftest_step("plan_review", [agentctl, "plan", "review", plan_id_value, "--json"]))
-        steps.append(run_selftest_step("plan_approve", [agentctl, "plan", "approve", plan_id_value]))
-        enqueue_step = run_selftest_step("plan_enqueue", [agentctl, "plan", "enqueue", plan_id_value])
+        steps.append(run_selftest_step("plan_show", [*agentctl_cmd, "plan", "show", plan_id_value, "--json"]))
+        steps.append(run_selftest_step("plan_review", [*agentctl_cmd, "plan", "review", plan_id_value, "--json"]))
+        steps.append(run_selftest_step("plan_approve", [*agentctl_cmd, "plan", "approve", plan_id_value]))
+        enqueue_step = run_selftest_step("plan_enqueue", [*agentctl_cmd, "plan", "enqueue", plan_id_value])
         steps.append(enqueue_step)
         failed_subtask_id = "1"
         if enqueue_step["ok"]:
@@ -3269,7 +3514,7 @@ def selftest_cmd(args):
                 steps.append({"name": "plan_mark_failed", "ok": False, "returncode": None, "expected_returncode": 0, "stdout": "", "stderr": str(exc)})
         else:
             steps.append({"name": "plan_mark_failed", "ok": False, "returncode": None, "expected_returncode": 0, "stdout": "", "stderr": "plan enqueue failed"})
-        blocked_step = run_selftest_step("plan_status_blocked", [agentctl, "plan", "status", plan_id_value, "--json"])
+        blocked_step = run_selftest_step("plan_status_blocked", [*agentctl_cmd, "plan", "status", plan_id_value, "--json"])
         if blocked_step["ok"]:
             try:
                 blocked_payload = json.loads(blocked_step["stdout"])
@@ -3280,7 +3525,7 @@ def selftest_cmd(args):
                 blocked_step["ok"] = False
                 blocked_step["stderr"] = str(exc)
         steps.append(blocked_step)
-        retry_step = run_selftest_step("plan_retry", [agentctl, "plan", "retry", plan_id_value, failed_subtask_id])
+        retry_step = run_selftest_step("plan_retry", [*agentctl_cmd, "plan", "retry", plan_id_value, failed_subtask_id])
         if retry_step["ok"]:
             try:
                 retry_payload = json.loads(retry_step["stdout"])
@@ -3293,20 +3538,20 @@ def selftest_cmd(args):
                 retry_step["ok"] = False
                 retry_step["stderr"] = str(exc)
         steps.append(retry_step)
-        steps.append(run_selftest_step("plan_skip", [agentctl, "plan", "skip", plan_id_value, failed_subtask_id, "--reason", "selftest skip failed subtask"]))
-        steps.append(run_selftest_step("plan_repair", [agentctl, "plan", "repair", plan_id_value, "--json"]))
-        steps.append(run_selftest_step("plan_status", [agentctl, "plan", "status", plan_id_value, "--json"]))
-        steps.append(run_selftest_step("plan_summarize", [agentctl, "plan", "summarize", plan_id_value, "--json"]))
+        steps.append(run_selftest_step("plan_skip", [*agentctl_cmd, "plan", "skip", plan_id_value, failed_subtask_id, "--reason", "selftest skip failed subtask"]))
+        steps.append(run_selftest_step("plan_repair", [*agentctl_cmd, "plan", "repair", plan_id_value, "--json"]))
+        steps.append(run_selftest_step("plan_status", [*agentctl_cmd, "plan", "status", plan_id_value, "--json"]))
+        steps.append(run_selftest_step("plan_summarize", [*agentctl_cmd, "plan", "summarize", plan_id_value, "--json"]))
     else:
         for name in ("plan_show", "plan_review", "plan_approve", "plan_enqueue", "plan_mark_failed", "plan_status_blocked", "plan_retry", "plan_skip", "plan_repair", "plan_status", "plan_summarize"):
             steps.append({"name": name, "ok": False, "returncode": None, "expected_returncode": 0, "stdout": "", "stderr": "missing plan id"})
-    steps.append(run_selftest_step("plan_danger_blocks", [agentctl, "plan", "create", "--workspace", "test-ws", "push and deploy this project"], expect_code=2))
-    pause_step = run_selftest_step("pause", [agentctl, "pause"])
+    steps.append(run_selftest_step("plan_danger_blocks", [*agentctl_cmd, "plan", "create", "--workspace", "test-ws", "push and deploy this project"], expect_code=2))
+    pause_step = run_selftest_step("pause", [*agentctl_cmd, "pause"])
     steps.append(pause_step)
-    steps.append(run_selftest_step("daemon_status_json", [agentctl, "daemon-status", "--json"]))
-    steps.append(run_selftest_step("agentd_once_paused", [agentctl, "agentd-once"], expect_code=0))
-    steps.append(run_selftest_step("resume", [agentctl, "resume"]))
-    run_step = run_selftest_step("run_planner_ready", [agentctl, "run", "planner", "Reply exactly READY_SELFTEST"], expect_code=0)
+    steps.append(run_selftest_step("daemon_status_json", [*agentctl_cmd, "daemon-status", "--json"]))
+    steps.append(run_selftest_step("agentd_once_paused", [*agentctl_cmd, "agentd-once"], expect_code=0))
+    steps.append(run_selftest_step("resume", [*agentctl_cmd, "resume"]))
+    run_step = run_selftest_step("run_planner_ready", [*agentctl_cmd, "run", "planner", "Reply exactly READY_SELFTEST"], expect_code=0)
     steps.append(run_step)
     task_id_value = None
     if run_step["ok"]:
@@ -3315,10 +3560,10 @@ def selftest_cmd(args):
         except Exception:
             task_id_value = None
     if task_id_value:
-        steps.append(run_selftest_step("show_task", [agentctl, "show", task_id_value, "--json"]))
-        steps.append(run_selftest_step("logs_task", [agentctl, "logs", task_id_value]))
-        steps.append(run_selftest_step("summarize_task", [agentctl, "summarize", task_id_value, "--json"]))
-        steps.append(run_selftest_step("memory_candidates_task", [agentctl, "memory-candidates", task_id_value, "--json"]))
+        steps.append(run_selftest_step("show_task", [*agentctl_cmd, "show", task_id_value, "--json"]))
+        steps.append(run_selftest_step("logs_task", [*agentctl_cmd, "logs", task_id_value]))
+        steps.append(run_selftest_step("summarize_task", [*agentctl_cmd, "summarize", task_id_value, "--json"]))
+        steps.append(run_selftest_step("memory_candidates_task", [*agentctl_cmd, "memory-candidates", task_id_value, "--json"]))
     else:
         steps.append({"name": "show_task", "ok": False, "returncode": None, "expected_returncode": 0, "stdout": "", "stderr": "missing task id"})
         steps.append({"name": "logs_task", "ok": False, "returncode": None, "expected_returncode": 0, "stdout": "", "stderr": "missing task id"})
@@ -3340,6 +3585,7 @@ def smoke_cmd(args):
     ensure_state()
     tool_validation = validate_tools_registry(strict=True)
     profile_validation = validate_profiles_registry(strict=True)
+    guardrail_rules = guardrails_mod.list_guardrail_rules().get("rules") or []
     payload = {
         "version": load_version(),
         "config_exists": CONFIG_PATH.exists(),
@@ -3353,10 +3599,12 @@ def smoke_cmd(args):
         "agentbot_resolves": bool(resolve_agentbot_bin()),
         "tools_ok": bool(tool_validation.get("ok")),
         "profiles_ok": bool(profile_validation.get("ok")),
+        "guardrails_ok": bool(guardrail_rules),
+        "guardrails_rules_count": len(guardrail_rules),
         "tools_invalid_count": int(tool_validation.get("invalid_count", 0)),
         "profiles_invalid_count": int(profile_validation.get("invalid_count", 0)),
     }
-    ok = payload["config_exists"] and payload["amb_adapter_importable"] and payload["tools_ok"] and payload["profiles_ok"]
+    ok = payload["config_exists"] and payload["amb_adapter_importable"] and payload["tools_ok"] and payload["profiles_ok"] and payload["guardrails_ok"]
     if args.json:
         print_json({"ok": ok, **payload})
     else:
@@ -3369,7 +3617,7 @@ def smoke_cmd(args):
 def version_cmd(args):
     payload = {
         "version": load_version(),
-        "contract": "agentctl-v1.4.0",
+        "contract": "agentctl-v1.5.0",
         "daemon": True,
         "telegram": True,
         "config": str(CONFIG_PATH),
@@ -3951,6 +4199,20 @@ def main():
     config_validate.add_argument("--json", action="store_true")
     config_validate.set_defaults(func=config_validate_cmd)
 
+    guardrail = sub.add_parser("guardrail")
+    guardrail_sub = guardrail.add_subparsers(dest="guardrail_cmd", required=True)
+    guardrail_list = guardrail_sub.add_parser("list")
+    guardrail_list.add_argument("--json", action="store_true")
+    guardrail_list.set_defaults(func=guardrail_list_cmd)
+    guardrail_eval = guardrail_sub.add_parser("eval")
+    guardrail_eval.add_argument("--profile", dest="profile_id", required=True)
+    guardrail_eval.add_argument("--tool", dest="tool_id")
+    guardrail_eval.add_argument("--action", required=True)
+    guardrail_eval.add_argument("--workspace")
+    guardrail_eval.add_argument("--agent")
+    guardrail_eval.add_argument("--json", action="store_true")
+    guardrail_eval.set_defaults(func=guardrail_eval_cmd)
+
     tool = sub.add_parser("tool")
     tool_sub = tool.add_subparsers(dest="tool_cmd", required=True)
     tool_list = tool_sub.add_parser("list")
@@ -3981,6 +4243,7 @@ def main():
     profile_run.add_argument("goal", nargs=argparse.REMAINDER)
     profile_run.add_argument("--workspace")
     profile_run.add_argument("--agent")
+    profile_run.add_argument("--tool")
     profile_run.add_argument("--dry-run", action="store_true")
     profile_run.add_argument("--timeout", type=int, default=600)
     profile_run.add_argument("--json", action="store_true")
@@ -3990,6 +4253,7 @@ def main():
     profile_plan.add_argument("goal", nargs=argparse.REMAINDER)
     profile_plan.add_argument("--workspace")
     profile_plan.add_argument("--agent")
+    profile_plan.add_argument("--tool")
     profile_plan.add_argument("--json", action="store_true")
     profile_plan.set_defaults(func=profile_plan_cmd)
 

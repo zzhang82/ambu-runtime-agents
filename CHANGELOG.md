@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.5.0
+
+- Added `runtime_agents.guardrails` with deterministic metadata-derived context evaluation and auditable `policy_decisions`.
+- Added `agentctl guardrail list` and `agentctl guardrail eval`, plus guardrail-aware `profile run --dry-run` and `profile plan` outputs.
+- Added doctor, selftest, smoke, and unit coverage for guardrail allow/block/approval-required decisions.
+- This release derives `context_state` from declared profile/tool/action metadata only; it does not yet track live tool-result trust propagation.
+
 ## 1.4.0
 
 - Added first-class profile and local tool registries with separate `profiles.yaml` and `tools.yaml` config surfaces.

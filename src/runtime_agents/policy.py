@@ -23,6 +23,13 @@ CAPABILITY_PATTERNS = {
     "global_config": ["~/.config", "/home/zzs333/.config", "~/.ssh", "/home/zzs333/.ssh", "~/.bashrc", "~/.zshrc", "global config"],
     "destructive_delete": ["rm -rf /", "rm -rf ~", "find * -delete", "delete everything"],
     "global_install": ["npm install -g", "pip install --user", "sudo apt install", "brew install", "global install"],
+    "broker_order_submit": [],
+    "options_autotrade": [],
+    "margin": [],
+    "external_purchase": [],
+    "checkout": [],
+    "payment": [],
+    "captcha_bypass": [],
 }
 
 

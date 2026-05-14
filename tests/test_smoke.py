@@ -78,6 +78,34 @@ def make_env(base_dir: Path):
         yaml.safe_dump(
             {
                 "tools": {
+                    "repo_read": {
+                        "title": "Repo Read",
+                        "description": "Read repository files.",
+                        "kind": "builtin",
+                        "enabled": True,
+                        "command": None,
+                        "args": [],
+                        "trust_level": "trusted",
+                        "data_classes": ["project_source"],
+                        "egress": "none",
+                        "capabilities": ["filesystem_read"],
+                        "workspace_scoped": True,
+                        "profile_scope": ["runtime-dev"],
+                    },
+                    "telegram_notify": {
+                        "title": "Telegram Notify",
+                        "description": "Send Telegram notifications.",
+                        "kind": "builtin",
+                        "enabled": True,
+                        "command": None,
+                        "args": [],
+                        "trust_level": "trusted",
+                        "data_classes": ["workspace_files"],
+                        "egress": "telegram",
+                        "capabilities": ["api_call"],
+                        "workspace_scoped": False,
+                        "profile_scope": ["shopping-watch"],
+                    },
                     "web_fetch": {
                         "title": "Web Fetch",
                         "description": "Fetch public webpages.",
@@ -102,7 +130,7 @@ def make_env(base_dir: Path):
                         "trust_level": "trusted",
                         "data_classes": ["workspace_files"],
                         "egress": "none",
-                        "capabilities": ["filesystem_read", "filesystem_write"],
+                        "capabilities": ["filesystem_read", "filesystem_write", "workspace_write"],
                         "workspace_scoped": True,
                         "profile_scope": ["runtime-dev"],
                     },
@@ -131,11 +159,23 @@ def make_env(base_dir: Path):
                         "default_agent": "planner",
                         "allowed_agents": ["planner", "reviewer", "coder"],
                         "workspace_required": True,
-                        "allowed_tools": ["web_fetch", "workspace_files"],
+                        "allowed_tools": ["repo_read", "web_fetch", "workspace_files"],
                         "blocked_capabilities": ["git_push", "deploy", "secrets", "global_config", "destructive_delete", "global_install"],
                         "approval_required": ["workspace_write", "git_push", "deploy"],
                         "default_run_goal": "inspect repo status",
                         "default_plan_goal": "improve tests",
+                    },
+                    "shopping-watch": {
+                        "title": "Shopping Watch",
+                        "description": "Notification-only shopping monitor.",
+                        "default_agent": "planner",
+                        "allowed_agents": ["planner", "reviewer"],
+                        "workspace_required": False,
+                        "allowed_tools": ["telegram_notify"],
+                        "blocked_capabilities": ["external_purchase", "checkout", "payment", "captcha_bypass"],
+                        "approval_required": [],
+                        "default_run_goal": "review item",
+                        "default_plan_goal": "plan item review",
                     }
                 }
             },
@@ -163,8 +203,167 @@ class RuntimeAgentsSmokeTests(unittest.TestCase):
         proc = run_cli(["version", "--json"], self.env)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         payload = json.loads(proc.stdout)
-        self.assertEqual(payload["version"], "1.4.0")
-        self.assertEqual(payload["contract"], "agentctl-v1.4.0")
+        self.assertEqual(payload["version"], "1.5.0")
+        self.assertEqual(payload["contract"], "agentctl-v1.5.0")
+
+    def test_guardrail_commands(self):
+        listed = run_cli(["guardrail", "list", "--json"], self.env)
+        self.assertEqual(listed.returncode, 0, listed.stderr)
+        rules_payload = json.loads(listed.stdout)
+        self.assertTrue(any(item["rule_id"] == "profile_blocked_capability" for item in rules_payload["rules"]))
+
+        allow_eval = run_cli(["guardrail", "eval", "--profile", "runtime-dev", "--tool", "repo_read", "--action", "profile_run", "--json"], self.env)
+        self.assertEqual(allow_eval.returncode, 0, allow_eval.stderr)
+        allow_payload = json.loads(allow_eval.stdout)
+        self.assertEqual(allow_payload["decision"], "allow")
+
+        blocked_eval = run_cli(["guardrail", "eval", "--profile", "shopping-watch", "--tool", "telegram_notify", "--action", "external_purchase", "--json"], self.env)
+        self.assertEqual(blocked_eval.returncode, 1, blocked_eval.stderr)
+        blocked_payload = json.loads(blocked_eval.stdout)
+        self.assertEqual(blocked_payload["decision"], "block")
+
+        missing_tool = run_cli(["guardrail", "eval", "--profile", "runtime-dev", "--tool", "missing-tool", "--action", "profile_run", "--json"], self.env)
+        self.assertEqual(missing_tool.returncode, 1, missing_tool.stderr)
+        self.assertEqual(json.loads(missing_tool.stdout)["rule_id"], "unknown_tool")
+
+        tool_not_allowed = run_cli(["guardrail", "eval", "--profile", "runtime-dev", "--tool", "telegram_notify", "--action", "profile_run", "--json"], self.env)
+        self.assertEqual(tool_not_allowed.returncode, 1, tool_not_allowed.stderr)
+        self.assertEqual(json.loads(tool_not_allowed.stdout)["rule_id"], "tool_not_allowed_for_profile")
+
+        disabled_tool = Path(self.env["RUNTIME_AGENTS_CONFIG_HOME"]) / "tools.yaml"
+        config_tools = yaml.safe_load(disabled_tool.read_text(encoding="utf-8"))
+        config_tools["tools"]["repo_read"]["enabled"] = False
+        disabled_tool.write_text(yaml.safe_dump(config_tools, sort_keys=False), encoding="utf-8")
+        disabled_eval = run_cli(["guardrail", "eval", "--profile", "runtime-dev", "--tool", "repo_read", "--action", "profile_run", "--json"], self.env)
+        self.assertEqual(disabled_eval.returncode, 1, disabled_eval.stderr)
+        self.assertEqual(json.loads(disabled_eval.stdout)["rule_id"], "tool_disabled")
+
+        config_tools["tools"]["repo_read"]["enabled"] = True
+        disabled_tool.write_text(yaml.safe_dump(config_tools, sort_keys=False), encoding="utf-8")
+
+        disabled_profile = Path(self.env["RUNTIME_AGENTS_CONFIG_HOME"]) / "profiles.yaml"
+        config_profiles = yaml.safe_load(disabled_profile.read_text(encoding="utf-8"))
+        original_allowed_tools = config_profiles["profiles"]["runtime-dev"].get("allowed_tools", [])
+        config_profiles["profiles"]["runtime-dev"]["allowed_tools"] = ["web_fetch"]
+        disabled_profile.write_text(yaml.safe_dump(config_profiles, sort_keys=False), encoding="utf-8")
+        profile_block_eval = run_cli(["guardrail", "eval", "--profile", "runtime-dev", "--tool", "repo_read", "--action", "profile_run", "--json"], self.env)
+        self.assertEqual(profile_block_eval.returncode, 1, profile_block_eval.stderr)
+        self.assertEqual(json.loads(profile_block_eval.stdout)["rule_id"], "tool_not_allowed_for_profile")
+
+        config_profiles["profiles"]["runtime-dev"]["allowed_tools"] = original_allowed_tools
+        disabled_profile.write_text(yaml.safe_dump(config_profiles, sort_keys=False), encoding="utf-8")
+
+        approval_eval = run_cli(["guardrail", "eval", "--profile", "runtime-dev", "--tool", "workspace_files", "--action", "profile_run", "--json"], self.env)
+        self.assertEqual(approval_eval.returncode, 1, approval_eval.stderr)
+        self.assertEqual(json.loads(approval_eval.stdout)["decision"], "approval_required")
+
+        purchase_eval = run_cli(["guardrail", "eval", "--profile", "runtime-dev", "--action", "external_purchase", "--json"], self.env)
+        self.assertEqual(purchase_eval.returncode, 1, purchase_eval.stderr)
+        self.assertEqual(json.loads(purchase_eval.stdout)["decision"], "block")
+
+        shell_eval = run_cli(["guardrail", "eval", "--profile", "runtime-dev", "--action", "shell", "--json"], self.env)
+        self.assertEqual(shell_eval.returncode, 1, shell_eval.stderr)
+        self.assertEqual(json.loads(shell_eval.stdout)["rule_id"], "block_arbitrary_shell")
+
+        private_external_eval = run_cli(["guardrail", "eval", "--profile", "shopping-watch", "--tool", "telegram_notify", "--action", "profile_run", "--json"], self.env)
+        self.assertEqual(private_external_eval.returncode, 1, private_external_eval.stderr)
+        self.assertEqual(json.loads(private_external_eval.stdout)["rule_id"], "require_approval_private_external_summary")
+
+        untrusted_private_tool = Path(self.env["RUNTIME_AGENTS_CONFIG_HOME"]) / "tools.yaml"
+        changed_tools = yaml.safe_load(untrusted_private_tool.read_text(encoding="utf-8"))
+        changed_tools["tools"]["telegram_notify"]["trust_level"] = "untrusted_input"
+        untrusted_private_tool.write_text(yaml.safe_dump(changed_tools, sort_keys=False), encoding="utf-8")
+        untrusted_eval = run_cli(["guardrail", "eval", "--profile", "shopping-watch", "--tool", "telegram_notify", "--action", "profile_run", "--json"], self.env)
+        self.assertEqual(untrusted_eval.returncode, 1, untrusted_eval.stderr)
+        self.assertEqual(json.loads(untrusted_eval.stdout)["rule_id"], "block_untrusted_private_external_send")
+
+        changed_tools["tools"]["telegram_notify"]["trust_level"] = "trusted"
+        changed_tools["tools"]["telegram_notify"]["capabilities"] = ["broker_order_submit"]
+        untrusted_private_tool.write_text(yaml.safe_dump(changed_tools, sort_keys=False), encoding="utf-8")
+        broker_eval = run_cli(["guardrail", "eval", "--profile", "shopping-watch", "--tool", "telegram_notify", "--action", "profile_run", "--json"], self.env)
+        self.assertEqual(broker_eval.returncode, 1, broker_eval.stderr)
+        self.assertEqual(json.loads(broker_eval.stdout)["rule_id"], "block_broker_order_submit")
+
+        changed_tools["tools"]["telegram_notify"]["capabilities"] = ["external_purchase"]
+        untrusted_private_tool.write_text(yaml.safe_dump(changed_tools, sort_keys=False), encoding="utf-8")
+        purchase_tool_eval = run_cli(["guardrail", "eval", "--profile", "shopping-watch", "--tool", "telegram_notify", "--action", "profile_run", "--json"], self.env)
+        self.assertEqual(purchase_tool_eval.returncode, 1, purchase_tool_eval.stderr)
+        self.assertEqual(json.loads(purchase_tool_eval.stdout)["rule_id"], "block_external_purchase")
+
+        same_strength = run_cli(["guardrail", "eval", "--profile", "shopping-watch", "--tool", "telegram_notify", "--action", "external_purchase", "--json"], self.env)
+        self.assertEqual(same_strength.returncode, 1, same_strength.stderr)
+        same_strength_payload = json.loads(same_strength.stdout)
+        self.assertTrue(any(item["decision"] == "block" for item in same_strength_payload["policy_decisions"]))
+        self.assertEqual(same_strength_payload["decision"], "block")
+
+        implicit_tool = run_cli(["guardrail", "eval", "--profile", "runtime-dev", "--action", "profile_run", "--json"], self.env)
+        self.assertEqual(implicit_tool.returncode, 0, implicit_tool.stderr)
+        implicit_payload = json.loads(implicit_tool.stdout)
+        self.assertEqual(implicit_payload["decision"], "allow")
+        self.assertEqual(implicit_payload["context_state"]["tool_trace"], [])
+        self.assertIn("repo_read", implicit_payload["context_state"]["tools_considered"])
+
+        context_source = run_cli(["guardrail", "eval", "--profile", "runtime-dev", "--tool", "repo_read", "--action", "profile_run", "--json"], self.env)
+        self.assertEqual(context_source.returncode, 0, context_source.stderr)
+        self.assertEqual(json.loads(context_source.stdout)["context_state"]["tool_trace"][0]["source"], "config")
+
+        self.assertEqual(rules_payload["rules"][-1]["rule_id"], "default_allow")
+        self.assertEqual(rules_payload["rules"][-1]["decision"], "allow")
+
+        profile_payload = json.loads(run_cli(["profile", "show", "runtime-dev", "--json"], self.env).stdout)
+        self.assertEqual(profile_payload["resolved"]["tools"][0], "repo_read")
+
+        tool_payload = json.loads(run_cli(["tool", "show", "repo_read", "--json"], self.env).stdout)
+        self.assertEqual(tool_payload["profile_scope"], ["runtime-dev"])
+
+        action_payload = json.loads(run_cli(["assistant-exec", "list", "workspaces", "--json"], self.env).stdout)
+        self.assertEqual(action_payload["action_result"]["status"], "completed")
+
+        self.assertTrue(all(rule["description"] for rule in rules_payload["rules"]))
+
+        allow_payload = json.loads(run_cli(["guardrail", "eval", "--profile", "runtime-dev", "--tool", "repo_read", "--action", "profile_run", "--json"], self.env).stdout)
+        self.assertEqual(allow_payload["context_state"]["profile"], "runtime-dev")
+        self.assertEqual(allow_payload["context_state"]["workspace"], None)
+        self.assertIn("profile_run", allow_payload["context_state"]["capabilities"])
+
+        approval_payload = json.loads(run_cli(["guardrail", "eval", "--profile", "runtime-dev", "--tool", "workspace_files", "--action", "profile_run", "--json"], self.env).stdout)
+        self.assertTrue(any(item["rule_id"] == "profile_approval_required" for item in approval_payload["policy_decisions"]))
+
+        config_tools = yaml.safe_load((Path(self.env["RUNTIME_AGENTS_CONFIG_HOME"]) / "tools.yaml").read_text(encoding="utf-8"))
+
+        blocked_payload = json.loads(run_cli(["guardrail", "eval", "--profile", "shopping-watch", "--tool", "telegram_notify", "--action", "external_purchase", "--json"], self.env).stdout)
+        self.assertTrue(any(item["rule_id"] == "profile_blocked_capability" for item in blocked_payload["policy_decisions"]))
+
+        list_payload = json.loads(run_cli(["guardrail", "list", "--json"], self.env).stdout)
+        self.assertEqual(list_payload["rules"][0]["rule_id"], "block_arbitrary_shell")
+
+        self.assertEqual(json.loads(run_cli(["version", "--json"], self.env).stdout)["contract"], "agentctl-v1.5.0")
+
+        dry_run_payload = json.loads(run_cli(["profile", "run", "runtime-dev", "inspect", "repo", "status", "--workspace", "test-ws", "--dry-run", "--json"], self.env).stdout)
+        self.assertIn("context_state", dry_run_payload)
+        self.assertIn("policy_decisions", dry_run_payload)
+
+        plan_create = run_cli(["profile", "plan", "runtime-dev", "improve", "tests", "--workspace", "test-ws", "--json"], self.env)
+        self.assertEqual(plan_create.returncode, 0, plan_create.stderr)
+        plan_payload = json.loads(plan_create.stdout)
+        self.assertIn("context_state", plan_payload)
+        self.assertIn("policy_decisions", plan_payload)
+        shown_plan = json.loads(run_cli(["plan", "show", plan_payload["plan_id"], "--json"], self.env).stdout)
+        self.assertIn("context_state", shown_plan)
+        self.assertIn("policy_decisions", shown_plan)
+
+        blocked_run = run_cli(["profile", "run", "shopping-watch", "buy", "this", "item", "--tool", "telegram_notify", "--json"], self.env)
+        self.assertEqual(blocked_run.returncode, 2, blocked_run.stderr)
+
+        doctor_payload = {row["name"]: row for row in json.loads(run_cli(["doctor", "--json"], self.env).stdout)}
+        self.assertIn("guardrails_loadable", doctor_payload)
+        self.assertIn("guardrails_eval_smoke", doctor_payload)
+
+        smoke_payload = json.loads(run_cli(["smoke", "--json"], self.env).stdout)
+        self.assertTrue(smoke_payload["guardrails_ok"])
+        self.assertGreater(smoke_payload["guardrails_rules_count"], 0)
+
+        self.assertEqual(json.loads(run_cli(["queue", "--json"], self.env).stdout), [])
 
     def test_runbook_commands(self):
         listed = run_cli(["runbook", "list", "--json"], self.env)
@@ -296,11 +495,82 @@ class RuntimeAgentsSmokeTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         payload = json.loads(proc.stdout)
         self.assertTrue(payload["ok"])
-        self.assertEqual(payload["version"], "1.4.0")
+        self.assertEqual(payload["version"], "1.5.0")
         self.assertTrue(payload["tools_ok"])
         self.assertTrue(payload["profiles_ok"])
+        self.assertTrue(payload["guardrails_ok"])
+        self.assertGreater(payload["guardrails_rules_count"], 0)
         self.assertEqual(payload["tools_invalid_count"], 0)
         self.assertEqual(payload["profiles_invalid_count"], 0)
+        self.assertEqual(json.loads(run_cli(["queue", "--json"], self.env).stdout), [])
+
+    def test_profile_run_dry_run(self):
+        proc = run_cli(["profile", "run", "runtime-dev", "inspect", "repo", "status", "--workspace", "test-ws", "--dry-run", "--json"], self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertEqual(payload["status"], "dry_run_ok")
+        self.assertEqual(payload["workspace"], "test-ws")
+        self.assertIn("context_state", payload)
+        self.assertIn("policy_decisions", payload)
+        self.assertIn("repo_read", payload["context_state"]["tools_considered"])
+
+    def test_profile_plan(self):
+        proc = run_cli(["profile", "plan", "runtime-dev", "improve", "tests", "--workspace", "test-ws", "--json"], self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertIn("plan_id", payload)
+        self.assertIn("context_state", payload)
+        self.assertIn("policy_decisions", payload)
+        shown = run_cli(["plan", "show", payload["plan_id"], "--json"], self.env)
+        self.assertEqual(shown.returncode, 0, shown.stderr)
+        plan = json.loads(shown.stdout)
+        self.assertEqual(plan["profile_id"], "runtime-dev")
+        self.assertIn("context_state", plan)
+        self.assertIn("policy_decisions", plan)
+
+    def test_profile_run_blocks_unknown_tool(self):
+        proc = run_cli(["profile", "run", "runtime-dev", "inspect", "repo", "status", "--workspace", "test-ws", "--tool", "missing-tool", "--dry-run", "--json"], self.env)
+        self.assertEqual(proc.returncode, 2, proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertEqual(payload["status"], "blocked")
+        self.assertEqual(payload["rule_id"], "unknown_tool")
+
+    def test_profile_run_blocks_tool_outside_profile(self):
+        proc = run_cli(["profile", "run", "runtime-dev", "inspect", "repo", "status", "--workspace", "test-ws", "--tool", "telegram_notify", "--dry-run", "--json"], self.env)
+        self.assertEqual(proc.returncode, 2, proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertEqual(payload["status"], "blocked")
+        self.assertEqual(payload["rule_id"], "tool_not_allowed_for_profile")
+
+    def test_profile_run_approval_required_for_workspace_write_tool(self):
+        proc = run_cli(["profile", "run", "runtime-dev", "inspect", "repo", "status", "--workspace", "test-ws", "--tool", "workspace_files", "--dry-run", "--json"], self.env)
+        self.assertEqual(proc.returncode, 2, proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertEqual(payload["status"], "approval_required")
+        self.assertTrue(any(item["rule_id"] == "profile_approval_required" for item in payload["policy_decisions"]))
+
+    def test_doctor_reports_guardrails(self):
+        doctor = run_cli(["doctor", "--json"], self.env)
+        checks = json.loads(doctor.stdout)
+        by_name = {row["name"]: row for row in checks}
+        self.assertIn("guardrails_loadable", by_name)
+        self.assertIn("guardrails_rules_count", by_name)
+        self.assertIn("guardrails_eval_smoke", by_name)
+        self.assertTrue(by_name["guardrails_loadable"]["ok"])
+        self.assertTrue(by_name["guardrails_eval_smoke"]["ok"])
+
+    def test_selftest_reports_guardrails(self):
+        selftest = run_cli(["selftest", "--json"], self.env)
+        payload = json.loads(selftest.stdout)
+        steps = {row["name"]: row for row in payload["steps"]}
+        self.assertIn("guardrail_list", steps)
+        self.assertIn("guardrail_eval_allow", steps)
+        self.assertIn("guardrail_eval_unknown_tool", steps)
+        self.assertIn("guardrail_eval_block_purchase", steps)
+        self.assertTrue(steps["guardrail_list"]["ok"])
+        self.assertTrue(steps["guardrail_eval_allow"]["ok"])
+        self.assertTrue(steps["guardrail_eval_unknown_tool"]["ok"])
+        self.assertTrue(steps["guardrail_eval_block_purchase"]["ok"])
 
     def test_queue_empty_json(self):
         proc = run_cli(["queue", "--json"], self.env)
@@ -353,22 +623,6 @@ class RuntimeAgentsSmokeTests(unittest.TestCase):
         self.assertEqual(validated.returncode, 0, validated.stderr)
         self.assertTrue(json.loads(validated.stdout)["ok"])
 
-    def test_profile_run_dry_run(self):
-        proc = run_cli(["profile", "run", "runtime-dev", "inspect", "repo", "status", "--workspace", "test-ws", "--dry-run", "--json"], self.env)
-        self.assertEqual(proc.returncode, 0, proc.stderr)
-        payload = json.loads(proc.stdout)
-        self.assertEqual(payload["status"], "dry_run_ok")
-        self.assertEqual(payload["workspace"], "test-ws")
-
-    def test_profile_plan(self):
-        proc = run_cli(["profile", "plan", "runtime-dev", "improve", "tests", "--workspace", "test-ws", "--json"], self.env)
-        self.assertEqual(proc.returncode, 0, proc.stderr)
-        payload = json.loads(proc.stdout)
-        self.assertIn("plan_id", payload)
-        shown = run_cli(["plan", "show", payload["plan_id"], "--json"], self.env)
-        self.assertEqual(shown.returncode, 0, shown.stderr)
-        plan = json.loads(shown.stdout)
-        self.assertEqual(plan["profile_id"], "runtime-dev")
 
     def test_assistant_route_basic(self):
         proc = run_cli(["assistant-route", "what needs attention?", "--json"], self.env)

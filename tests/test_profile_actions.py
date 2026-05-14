@@ -26,6 +26,8 @@ class ProfileActionTests(unittest.TestCase):
             "default_run_goal": "inspect repo status",
             "default_plan_goal": "improve tests",
             "allowed_tools": ["web_fetch"],
+            "blocked_capabilities": [],
+            "approval_required": [],
         }
         agent = agent_override or "planner"
         if agent not in profile["allowed_agents"]:
@@ -36,18 +38,23 @@ class ProfileActionTests(unittest.TestCase):
             "workspace": workspace_override or "test-ws",
             "cwd": str(cwd),
             "memory_namespace": "project:test-ws",
-            "allowed_tools": [{"id": "web_fetch"}],
+            "allowed_tools": [{"id": "web_fetch", "trust_level": "untrusted_input", "data_classes": ["public_web"], "capabilities": ["web_read"], "egress": "public_web"}],
         }
 
     def test_profile_run_returns_resolved_payload(self):
         result = actions.execute_action(
             {"type": "profile_run", "profile_id": "runtime-dev", "goal": "inspect repo status"},
             {"status": "matched", "risk": "read_only"},
-            deps={"resolve_profile": self._resolve_profile},
+            deps={
+                "resolve_profile": self._resolve_profile,
+                "tools_by_id": lambda: {"web_fetch": {"id": "web_fetch", "trust_level": "untrusted_input", "data_classes": ["public_web"], "capabilities": ["web_read"], "egress": "public_web", "enabled": True}},
+            },
         )
         self.assertTrue(result.ok)
         self.assertEqual(result.result["profile_id"], "runtime-dev")
         self.assertEqual(result.result["agent"], "planner")
+        self.assertIn("context_state", result.result)
+        self.assertIn("policy_decisions", result.result)
 
     def test_profile_plan_creates_profile_aware_plan(self):
         saved = {}
@@ -60,6 +67,7 @@ class ProfileActionTests(unittest.TestCase):
             {"status": "matched", "risk": "read_only"},
             deps={
                 "resolve_profile": self._resolve_profile,
+                "tools_by_id": lambda: {"web_fetch": {"id": "web_fetch", "trust_level": "untrusted_input", "data_classes": ["public_web"], "capabilities": ["web_read"], "egress": "public_web", "enabled": True}},
                 "plan_id": lambda: "20260514-120000-plan-abc123",
                 "default_plan_for_goal": lambda pid, workspace, memory_namespace, goal: {
                     "plan_id": pid,
@@ -76,6 +84,8 @@ class ProfileActionTests(unittest.TestCase):
         self.assertTrue(result.ok)
         self.assertEqual(result.result["profile_id"], "runtime-dev")
         self.assertEqual(saved["profile_id"], "runtime-dev")
+        self.assertIn("context_state", saved)
+        self.assertIn("policy_decisions", saved)
 
 
 if __name__ == "__main__":
