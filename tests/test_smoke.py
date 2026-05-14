@@ -203,8 +203,8 @@ class RuntimeAgentsSmokeTests(unittest.TestCase):
         proc = run_cli(["version", "--json"], self.env)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         payload = json.loads(proc.stdout)
-        self.assertEqual(payload["version"], "1.5.0")
-        self.assertEqual(payload["contract"], "agentctl-v1.5.0")
+        self.assertEqual(payload["version"], "1.5.1")
+        self.assertEqual(payload["contract"], "agentctl-v1.5.1")
 
     def test_guardrail_commands(self):
         listed = run_cli(["guardrail", "list", "--json"], self.env)
@@ -337,7 +337,7 @@ class RuntimeAgentsSmokeTests(unittest.TestCase):
         list_payload = json.loads(run_cli(["guardrail", "list", "--json"], self.env).stdout)
         self.assertEqual(list_payload["rules"][0]["rule_id"], "block_arbitrary_shell")
 
-        self.assertEqual(json.loads(run_cli(["version", "--json"], self.env).stdout)["contract"], "agentctl-v1.5.0")
+        self.assertEqual(json.loads(run_cli(["version", "--json"], self.env).stdout)["contract"], "agentctl-v1.5.1")
 
         dry_run_payload = json.loads(run_cli(["profile", "run", "runtime-dev", "inspect", "repo", "status", "--workspace", "test-ws", "--dry-run", "--json"], self.env).stdout)
         self.assertIn("context_state", dry_run_payload)
@@ -495,7 +495,7 @@ class RuntimeAgentsSmokeTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         payload = json.loads(proc.stdout)
         self.assertTrue(payload["ok"])
-        self.assertEqual(payload["version"], "1.5.0")
+        self.assertEqual(payload["version"], "1.5.1")
         self.assertTrue(payload["tools_ok"])
         self.assertTrue(payload["profiles_ok"])
         self.assertTrue(payload["guardrails_ok"])
@@ -576,6 +576,40 @@ class RuntimeAgentsSmokeTests(unittest.TestCase):
         proc = run_cli(["queue", "--json"], self.env)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(json.loads(proc.stdout), [])
+
+    def test_queue_active_empty_json(self):
+        proc = run_cli(["queue", "active", "--json"], self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(json.loads(proc.stdout), [])
+
+    def test_queue_cancel_and_cleanup_validation(self):
+        submit = run_cli(["submit", "planner", "selftest", "queued", "noop", "--check", "true", "--max-rounds", "1", "--cwd", str(ROOT)], self.env)
+        self.assertEqual(submit.returncode, 0, submit.stderr)
+        submit_payload = json.loads(submit.stdout)
+        queue_id = submit_payload["queue_id"]
+
+        shown = run_cli(["queue", "show", queue_id, "--json"], self.env)
+        self.assertEqual(shown.returncode, 0, shown.stderr)
+        self.assertEqual(json.loads(shown.stdout)["queue_id"], queue_id)
+
+        active = run_cli(["queue", "active", "--json"], self.env)
+        self.assertEqual(active.returncode, 0, active.stderr)
+        self.assertTrue(any(item["queue_id"] == queue_id for item in json.loads(active.stdout)))
+
+        dry_run = run_cli(["queue", "cleanup-validation", "--dry-run", "--json"], self.env)
+        self.assertEqual(dry_run.returncode, 0, dry_run.stderr)
+        dry_payload = json.loads(dry_run.stdout)
+        self.assertTrue(any(item["queue_id"] == queue_id for item in dry_payload["cancelled"]))
+
+        cancel = run_cli(["queue", "cancel", queue_id, "--reason", "validation cleanup", "--json"], self.env)
+        self.assertEqual(cancel.returncode, 0, cancel.stderr)
+        cancel_payload = json.loads(cancel.stdout)
+        self.assertEqual(cancel_payload["status"], "cancelled")
+        self.assertEqual(cancel_payload["previous_status"], "queued")
+
+        cancel_again = run_cli(["queue", "cancel", queue_id, "--reason", "validation cleanup", "--json"], self.env)
+        self.assertEqual(cancel_again.returncode, 2, cancel_again.stderr)
+        self.assertEqual(json.loads(cancel_again.stdout)["status"], "not_cancellable")
 
     def test_schedule_add_show_remove(self):
         add = run_cli(["schedule", "add", "test-health", "--workspace", "test-ws", "--type", "run", "--agent", "planner", "--goal", "check health", "--cron", "* * * * *"], self.env)

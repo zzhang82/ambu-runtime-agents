@@ -2115,6 +2115,87 @@ def queue_show_cmd(args):
     print_json(item)
     return 0
 
+
+def queue_active_cmd(args):
+    items = [item for item in latest_queue_items().values() if item.get("status") in {"queued", "running", "approval_required", "retrying"}]
+    if args.json:
+        print_json(items)
+    else:
+        for item in items:
+            print(f"{item['queue_id']} {item.get('status')} {item.get('mode')} {item.get('agent')} {item.get('task_id') or '-'} {item.get('goal')}")
+    return 0
+
+
+def queue_cancel_cmd(args):
+    item = latest_queue_items().get(args.queue_id)
+    if not item:
+        raise SystemExit(f"Unknown queue id: {args.queue_id}")
+    current_status = item.get("status")
+    if current_status not in {"queued", "running", "approval_required", "retrying"}:
+        payload = {
+            "queue_id": args.queue_id,
+            "status": "not_cancellable",
+            "current_status": current_status,
+            "reason": f"Queue item is already {current_status}",
+        }
+        print_json(payload)
+        return 2
+    payload = cancel_queue_item(args.queue_id, args.reason, previous_status=current_status, cancelled_by="agentctl queue cancel")
+    print_json(payload)
+    return 0
+
+
+def is_validation_artifact_queue_item(item):
+    status = item.get("status")
+    if status not in {"queued", "running", "approval_required", "retrying"}:
+        return False, "inactive_status"
+    fields = [
+        item.get("goal") or "",
+        item.get("created_from") or "",
+        item.get("workspace") or "",
+        item.get("schedule_id") or "",
+        item.get("plan_id") or "",
+        item.get("reason") or "",
+        item.get("task_id") or "",
+    ]
+    haystack = "\n".join(str(value) for value in fields if value).lower()
+    markers = [
+        "selftest",
+        "telegram selftest",
+        "validation",
+        "smoke",
+        "test-ws",
+        "/tmp/opencode",
+    ]
+    if any(marker in haystack for marker in markers):
+        return True, "matched_validation_marker"
+    return False, "uncertain"
+
+
+def queue_cleanup_validation_cmd(args):
+    active_items = [item for item in latest_queue_items().values() if item.get("status") in {"queued", "running", "approval_required", "retrying"}]
+    cancelled = []
+    skipped = []
+    for item in active_items:
+        matched, match_reason = is_validation_artifact_queue_item(item)
+        if not matched:
+            skipped.append({"queue_id": item.get("queue_id"), "status": item.get("status"), "reason": "skipped_uncertain", "match_reason": match_reason})
+            continue
+        if args.dry_run:
+            cancelled.append({"queue_id": item.get("queue_id"), "status": item.get("status"), "would_cancel": True, "reason": args.reason, "match_reason": match_reason})
+            continue
+        cancelled.append(cancel_queue_item(item.get("queue_id"), args.reason, previous_status=item.get("status"), cancelled_by="agentctl queue cleanup-validation"))
+    payload = {
+        "dry_run": bool(args.dry_run),
+        "cancelled": cancelled,
+        "skipped": skipped,
+        "active_count": len(active_items),
+        "cancelled_count": len(cancelled),
+        "skipped_count": len(skipped),
+    }
+    print_json(payload)
+    return 0
+
 def run_next_cmd(args):
     ensure_state()
     try:
@@ -2204,8 +2285,18 @@ def run_next_cmd(args):
         return 3
 
 
-def cancel_queue_item(queue_id_value, reason="cancelled"):
-    append_queue({"queue_id": queue_id_value, "status": "cancelled", "ended_at": now_iso(), "reason": reason})
+def cancel_queue_item(queue_id_value, reason="cancelled", *, previous_status=None, cancelled_by="agentctl"):
+    payload = {
+        "queue_id": queue_id_value,
+        "status": "cancelled",
+        "ended_at": now_iso(),
+        "cancelled_at": now_iso(),
+        "reason": reason,
+        "cancelled_by": cancelled_by,
+        "previous_status": previous_status,
+    }
+    append_queue(payload)
+    return payload
 
 
 def status_cmd(args):
@@ -3456,10 +3547,15 @@ def selftest_cmd(args):
     if queue_id_value:
         steps.append(run_selftest_step("queue_show", [*agentctl_cmd, "queue", "show", queue_id_value, "--json"]))
         steps.append(run_selftest_step("queue_list_json", [*agentctl_cmd, "queue", "--json"]))
-        cancel_queue_item(queue_id_value, "selftest cleanup")
+        steps.append(run_selftest_step("queue_active_json", [*agentctl_cmd, "queue", "active", "--json"]))
+        steps.append(run_selftest_step("queue_cleanup_validation_dry_run", [*agentctl_cmd, "queue", "cleanup-validation", "--dry-run", "--json"]))
+        steps.append(run_selftest_step("queue_cancel", [*agentctl_cmd, "queue", "cancel", queue_id_value, "--reason", "selftest cleanup", "--json"]))
     else:
         steps.append({"name": "queue_show", "ok": False, "returncode": None, "expected_returncode": 0, "stdout": "", "stderr": "missing queue id"})
         steps.append({"name": "queue_list_json", "ok": False, "returncode": None, "expected_returncode": 0, "stdout": "", "stderr": "missing queue id"})
+        steps.append({"name": "queue_active_json", "ok": False, "returncode": None, "expected_returncode": 0, "stdout": "", "stderr": "missing queue id"})
+        steps.append({"name": "queue_cleanup_validation_dry_run", "ok": False, "returncode": None, "expected_returncode": 0, "stdout": "", "stderr": "missing queue id"})
+        steps.append({"name": "queue_cancel", "ok": False, "returncode": None, "expected_returncode": 0, "stdout": "", "stderr": "missing queue id"})
     schedule_name = "selftest-schedule"
     existing_schedule = schedule_by_name(schedule_name)
     if existing_schedule and not existing_schedule.get("removed"):
@@ -3617,7 +3713,7 @@ def smoke_cmd(args):
 def version_cmd(args):
     payload = {
         "version": load_version(),
-        "contract": "agentctl-v1.5.0",
+        "contract": "agentctl-v1.5.1",
         "daemon": True,
         "telegram": True,
         "config": str(CONFIG_PATH),
@@ -4112,6 +4208,19 @@ def main():
     queue_show.add_argument("queue_id")
     queue_show.add_argument("--json", action="store_true")
     queue_show.set_defaults(func=queue_show_cmd)
+    queue_active = queue_sub.add_parser("active")
+    queue_active.add_argument("--json", action="store_true")
+    queue_active.set_defaults(func=queue_active_cmd)
+    queue_cancel = queue_sub.add_parser("cancel")
+    queue_cancel.add_argument("queue_id")
+    queue_cancel.add_argument("--reason", required=True)
+    queue_cancel.add_argument("--json", action="store_true")
+    queue_cancel.set_defaults(func=queue_cancel_cmd)
+    queue_cleanup = queue_sub.add_parser("cleanup-validation")
+    queue_cleanup.add_argument("--dry-run", action="store_true")
+    queue_cleanup.add_argument("--reason", default="validation artifact cleanup")
+    queue_cleanup.add_argument("--json", action="store_true")
+    queue_cleanup.set_defaults(func=queue_cleanup_validation_cmd)
     queue.set_defaults(func=queue_cmd)
 
     run_next = sub.add_parser("run-next")
