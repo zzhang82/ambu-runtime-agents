@@ -1,4 +1,4 @@
-# Architecture (v1.3.1)
+# Architecture (v1.4.0)
 
 runtime-agents is a local personal-agent control plane with deterministic assistant routing.
 
@@ -6,8 +6,9 @@ runtime-agents is a local personal-agent control plane with deterministic assist
 
 agentctl:
 - owns the CLI contract
-- owns state, policy, runbook validation, and assistant execution
+- owns state, policy, runbook validation, profile/tool validation, and assistant execution
 - loads packaged default runbooks and config override runbooks
+- loads packaged and config profile/tool registries
 - routes through runbooks and delegates typed execution to `runtime_agents.actions`
 - is the source of truth for installed `agentctl` and `agentbot` behavior
 
@@ -53,6 +54,24 @@ Matching rules:
 - placeholders are typed (`workspace`, `task_id`, `plan_id`, `schedule`, `id`, `text`)
 - missing required inputs return `needs_clarification`
 - dangerous phrases are blocked before runbook matching
+
+## Profile and tool metadata layer
+
+Profiles and tools are now first-class metadata surfaces.
+
+Profiles:
+- live in `profiles.yaml`
+- reference agents, workspaces, memory namespaces, and allowed tool ids
+- expose assistant-facing defaults for run and plan goals
+
+Tools:
+- live in `tools.yaml`
+- describe local tool metadata such as trust level, egress label, capabilities, and profile scope
+
+Release boundary for v1.4.0:
+- profiles/tools are visible, validatable, and routable
+- profile-aware CLI and runbook actions resolve metadata through the existing executor boundary
+- runtime trust propagation, context-aware guardrails, and egress enforcement are not implemented yet
 
 ## Assistant execution model
 
@@ -102,5 +121,6 @@ This keeps routing data-driven while preserving a hard safety boundary around ex
 
 ## Release boundary
 - v1.2.0 introduced the extracted control modules and initial runbook surface
-- v1.3.0 makes runbooks the routing source of truth
-- future releases should extend typed actions and packaged runbooks rather than reintroducing hardcoded intent branches
+- v1.3.x made runbooks the routing source of truth and extracted typed assistant execution
+- v1.4.0 adds first-class profile and tool metadata surfaces
+- future releases should build guardrails on top of the profile/tool metadata layer rather than reintroducing hardcoded intent branches

@@ -98,6 +98,20 @@ def execute_action(action: dict[str, Any], route: dict[str, Any] | None = None, 
                 risk,
                 {"type": action_type, "schedules": [s for s in deps["latest_schedules"]().values() if not s.get("removed")]},
             )
+        if action_type == "list_profiles":
+            return ActionResult.completed(action_type, risk, {"type": action_type, "profiles": deps["load_profiles_registry"]()})
+        if action_type == "show_profile":
+            profile = deps["profiles_by_id"]().get(action.get("profile_id"))
+            if not profile:
+                return ActionResult.failed(action_type, risk, f"Unknown profile: {action.get('profile_id')}")
+            return ActionResult.completed(action_type, risk, {"type": action_type, "profile": profile})
+        if action_type == "list_tools":
+            return ActionResult.completed(action_type, risk, {"type": action_type, "tools": deps["load_tools_registry"]()})
+        if action_type == "show_tool":
+            tool = deps["tools_by_id"]().get(action.get("tool_id"))
+            if not tool:
+                return ActionResult.failed(action_type, risk, f"Unknown tool: {action.get('tool_id')}")
+            return ActionResult.completed(action_type, risk, {"type": action_type, "tool": tool})
         if action_type == "show_task":
             task = deps["latest_task"](action.get("task_id"))
             if not task:
@@ -226,6 +240,48 @@ def execute_action(action: dict[str, Any], route: dict[str, Any] | None = None, 
             deps["save_plan"](plan)
             deps["update_plan_status_file"](plan)
             return ActionResult.completed(action_type, risk, {"type": action_type, "plan_id": pid, "status": plan.get("status")})
+        if action_type == "profile_run":
+            resolved = deps["resolve_profile"](
+                action.get("profile_id"),
+                workspace_override=action.get("workspace"),
+                agent_override=action.get("agent"),
+            )
+            payload = {
+                "type": action_type,
+                "profile_id": action.get("profile_id"),
+                "agent": resolved.get("agent"),
+                "workspace": resolved.get("workspace"),
+                "cwd": resolved.get("cwd"),
+                "memory_namespace": resolved.get("memory_namespace"),
+                "goal": action.get("goal") or resolved.get("profile", {}).get("default_run_goal") or "",
+                "allowed_tools": [tool.get("id") for tool in resolved.get("allowed_tools") or []],
+            }
+            return ActionResult.completed(action_type, risk, payload)
+        if action_type == "profile_plan":
+            resolved = deps["resolve_profile"](
+                action.get("profile_id"),
+                workspace_override=action.get("workspace"),
+                agent_override=action.get("agent"),
+            )
+            goal = action.get("goal") or resolved.get("profile", {}).get("default_plan_goal") or ""
+            if not goal:
+                return ActionResult.failed(action_type, risk, "Goal is required")
+            if not resolved.get("workspace"):
+                return ActionResult.failed(action_type, risk, f"Profile '{action.get('profile_id')}' requires a workspace for planning.")
+            pid = deps["plan_id"]()
+            plan = deps["default_plan_for_goal"](pid, resolved.get("workspace"), resolved.get("memory_namespace"), goal)
+            plan["profile_id"] = action.get("profile_id")
+            plan["profile"] = {
+                "default_agent": resolved.get("profile", {}).get("default_agent"),
+                "allowed_agents": resolved.get("profile", {}).get("allowed_agents") or [],
+                "allowed_tools": resolved.get("profile", {}).get("allowed_tools") or [],
+            }
+            pdir = deps["plan_dir"](pid)
+            pdir.mkdir(parents=True, exist_ok=False)
+            (pdir / "goal.txt").write_text(goal + "\n", encoding="utf-8")
+            deps["save_plan"](plan)
+            deps["update_plan_status_file"](plan)
+            return ActionResult.completed(action_type, risk, {"type": action_type, "plan_id": pid, "status": plan.get("status"), "profile_id": action.get("profile_id")})
         return ActionResult.unsupported(action_type, risk, f"Assistant action is not enabled for assistant-exec: {action_type}")
     except Exception as exc:
         return ActionResult.failed(action_type, risk, str(exc))

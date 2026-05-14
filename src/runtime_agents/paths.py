@@ -21,6 +21,8 @@ def resolve_agentbot_bin() -> str:
 
 
 CONFIG_PATH = config_home() / "agents.yaml"
+PROFILES_CONFIG_PATH = config_home() / "profiles.yaml"
+TOOLS_CONFIG_PATH = config_home() / "tools.yaml"
 TELEGRAM_CONFIG_PATH = config_home() / "telegram.yaml"
 VERSION_PATH = config_home() / "VERSION"
 

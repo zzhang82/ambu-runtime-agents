@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.0
+
+- Added first-class profile and local tool registries with separate `profiles.yaml` and `tools.yaml` config surfaces.
+- Added `agentctl profile ...` and `agentctl tool ...` commands, plus profile-aware runbook/action support for deterministic assistant routing.
+- Extended doctor/smoke/test coverage for profile and tool validation while keeping this release metadata-first with no new runtime guardrail enforcement.
+
 ## 1.3.1
 
 - Extracted typed assistant action execution into `runtime_agents.actions` with an explicit `ActionResult` model while keeping `assistant-exec` payload behavior stable.

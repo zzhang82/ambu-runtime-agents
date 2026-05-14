@@ -47,10 +47,70 @@ def make_env(base_dir: Path):
         "capability_rules": {},
     }
     (config_home / "agents.yaml").write_text(yaml.safe_dump(agents, sort_keys=False), encoding="utf-8")
+    (config_home / "tools.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "tools": {
+                    "web_fetch": {
+                        "title": "Web Fetch",
+                        "description": "Fetch web pages.",
+                        "kind": "builtin",
+                        "enabled": True,
+                        "command": None,
+                        "args": [],
+                        "trust_level": "untrusted_input",
+                        "data_classes": ["public_web"],
+                        "egress": "public_web",
+                        "capabilities": ["web_read"],
+                        "workspace_scoped": False,
+                        "profile_scope": ["runtime-dev"],
+                    },
+                    "workspace_files": {
+                        "title": "Workspace Files",
+                        "description": "Read and edit workspace files.",
+                        "kind": "builtin",
+                        "enabled": True,
+                        "command": None,
+                        "args": [],
+                        "trust_level": "trusted",
+                        "data_classes": ["workspace_files"],
+                        "egress": "none",
+                        "capabilities": ["filesystem_read", "filesystem_write"],
+                        "workspace_scoped": True,
+                        "profile_scope": ["runtime-dev"],
+                    },
+                }
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
     workspace_path = base_dir / "workspace"
     workspace_path.mkdir()
     workspaces = {"test-ws": {"path": str(workspace_path), "memory_namespace": "project:test-ws"}}
     (config_home / "workspaces.yaml").write_text(yaml.safe_dump(workspaces, sort_keys=False), encoding="utf-8")
+    (config_home / "profiles.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "profiles": {
+                    "runtime-dev": {
+                        "title": "Runtime Development",
+                        "description": "Default runtime development profile.",
+                        "default_agent": "planner",
+                        "allowed_agents": ["planner", "reviewer", "coder"],
+                        "workspace_required": True,
+                        "allowed_tools": ["web_fetch", "workspace_files"],
+                        "blocked_capabilities": ["git_push", "deploy"],
+                        "approval_required": ["workspace_write", "git_push", "deploy"],
+                        "default_run_goal": "inspect repo status",
+                        "default_plan_goal": "improve tests",
+                    }
+                }
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
     env = os.environ.copy()
     env["PYTHONPATH"] = str(ROOT / "src")
     env["RUNTIME_AGENTS_CONFIG_HOME"] = str(config_home)
@@ -93,6 +153,27 @@ class AssistantExecTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         payload = json.loads(proc.stdout)
         self.assertEqual(payload["status"], "needs_clarification")
+
+    def test_list_profiles_exec_completes(self):
+        proc = _run_cli(["assistant-exec", "list", "profiles", "--json"], self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertEqual(payload["status"], "matched")
+        self.assertEqual(payload["execution"][0]["type"], "list_profiles")
+
+    def test_show_profile_exec_completes(self):
+        proc = _run_cli(["assistant-exec", "show", "profile", "runtime-dev", "--json"], self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertEqual(payload["status"], "matched")
+        self.assertEqual(payload["execution"][0]["type"], "show_profile")
+
+    def test_profile_run_exec_resolves_payload(self):
+        proc = _run_cli(["assistant-exec", "run", "profile", "runtime-dev", "inspect", "repo", "status", "--json"], self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertEqual(payload["status"], "matched")
+        self.assertEqual(payload["execution"][0]["type"], "profile_run")
 
 
 if __name__ == "__main__":

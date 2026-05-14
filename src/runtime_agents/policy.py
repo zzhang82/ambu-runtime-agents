@@ -16,6 +16,7 @@ TRANSIENT_MARKERS = (
 )
 
 CAPABILITY_PATTERNS = {
+    "workspace_write": [],
     "git_push": ["push", "git push"],
     "deploy": ["deploy"],
     "secrets": ["api key", "secret", "password", ".env", "credentials"],
@@ -23,6 +24,10 @@ CAPABILITY_PATTERNS = {
     "destructive_delete": ["rm -rf /", "rm -rf ~", "find * -delete", "delete everything"],
     "global_install": ["npm install -g", "pip install --user", "sudo apt install", "brew install", "global install"],
 }
+
+
+def known_capabilities() -> set[str]:
+    return set(CAPABILITY_PATTERNS.keys())
 
 
 def detect_capabilities(text: str, allowed: list[str] | None = None, patterns: dict | None = None) -> list[str]:

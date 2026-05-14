@@ -1,0 +1,34 @@
+tools:
+  web_fetch:
+    title: Web Fetch
+    description: Fetch public webpages and return metadata-first results.
+    kind: builtin
+    enabled: true
+    command: null
+    args: []
+    trust_level: untrusted_input
+    data_classes:
+      - public_web
+    egress: public_web
+    capabilities:
+      - web_read
+    workspace_scoped: false
+    profile_scope:
+      - runtime-dev
+  workspace_files:
+    title: Workspace Files
+    description: Read and edit files inside the active workspace.
+    kind: builtin
+    enabled: true
+    command: null
+    args: []
+    trust_level: trusted
+    data_classes:
+      - workspace_files
+    egress: none
+    capabilities:
+      - filesystem_read
+      - filesystem_write
+    workspace_scoped: true
+    profile_scope:
+      - runtime-dev

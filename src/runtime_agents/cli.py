@@ -2,6 +2,7 @@
 import argparse
 import datetime as dt
 import fcntl
+import importlib.metadata
 import json
 import os
 import re
@@ -16,9 +17,11 @@ from runtime_agents import assistant_router as assistant_router_mod
 from runtime_agents import paths as paths_mod
 from runtime_agents import plans as plans_mod
 from runtime_agents import policy as policy_mod
+from runtime_agents import profiles as profiles_mod
 from runtime_agents import runbooks as runbooks_mod
 from runtime_agents import schedules as schedules_mod
 from runtime_agents import state as state_mod
+from runtime_agents import tools_registry as tools_registry_mod
 from runtime_agents.models import TASK_STATUSES as MODEL_TASK_STATUSES
 
 try:
@@ -52,6 +55,8 @@ def resolve_agentbot_bin():
 
 
 CONFIG_PATH = paths_mod.CONFIG_PATH
+PROFILES_CONFIG_PATH = paths_mod.PROFILES_CONFIG_PATH
+TOOLS_CONFIG_PATH = paths_mod.TOOLS_CONFIG_PATH
 TELEGRAM_CONFIG_PATH = paths_mod.TELEGRAM_CONFIG_PATH
 VERSION_PATH = paths_mod.VERSION_PATH
 STATE_DIR = paths_mod.STATE_DIR
@@ -67,7 +72,7 @@ AGENTD_LOG = paths_mod.AGENTD_LOG
 TELEGRAM_OFFSET = paths_mod.TELEGRAM_OFFSET
 TELEGRAM_LOG = paths_mod.TELEGRAM_LOG
 STATUS_VALUES = MODEL_TASK_STATUSES
-PROFILE_MODELS = {
+MODEL_FALLBACK_PROFILES = {
     "sonnet": "claude-sonnet-4-6",
     "gpt54": "gpt-5.4",
     "gpt55": "gpt-5.5",
@@ -124,6 +129,32 @@ def load_telegram_config():
     return data if isinstance(data, dict) else {}
 
 
+def load_tools_registry():
+    return tools_registry_mod.load_tools()
+
+
+def tools_by_id():
+    return {item["id"]: item for item in load_tools_registry()}
+
+
+def load_profiles_registry():
+    config = load_config()
+    return profiles_mod.load_profiles(agents=config.get("agents") or {}, workspaces=load_workspaces())
+
+
+def profiles_by_id():
+    return {item["id"]: item for item in load_profiles_registry()}
+
+
+def validate_tools_registry(*, strict: bool = False):
+    return tools_registry_mod.validate_tools(strict=strict)
+
+
+def validate_profiles_registry(*, strict: bool = False):
+    config = load_config()
+    return profiles_mod.validate_profiles(strict=strict, agents=config.get("agents") or {}, workspaces=load_workspaces())
+
+
 def telegram_cfg():
     cfg = (load_telegram_config().get("telegram") or {})
     return {
@@ -134,6 +165,16 @@ def telegram_cfg():
 
 
 def load_version():
+    pyproject_path = Path(__file__).resolve().parents[2] / "pyproject.toml"
+    if pyproject_path.exists():
+        text = pyproject_path.read_text(encoding="utf-8")
+        match = re.search(r'^version\s*=\s*"([^"]+)"\s*$', text, re.MULTILINE)
+        if match:
+            return match.group(1)
+    try:
+        return importlib.metadata.version("runtime-agents")
+    except importlib.metadata.PackageNotFoundError:
+        pass
     if VERSION_PATH.exists():
         return VERSION_PATH.read_text(encoding="utf-8").strip()
     return "0.0.0-unknown"
@@ -630,7 +671,7 @@ def execute_agent_attempts(agent_cfg, tool, model, prompt, autonomy, fallback, t
         profiles.extend(agent_cfg.get("fallback_profiles") or [])
     final = None
     for index, profile in enumerate(profiles, start=1):
-        attempt_model = PROFILE_MODELS.get(profile, model)
+        attempt_model = MODEL_FALLBACK_PROFILES.get(profile, model)
         cmd = build_command(tool, attempt_model, prompt, profile=profile if tool == "codex" else None, autonomy=autonomy)
         attempt = {
             "attempt": index,
@@ -2395,20 +2436,38 @@ def doctor_cmd(args):
     for warning in runbook_validation.get("warnings") or []:
         add("runbooks_warning", False, warning)
 
-    tools = config.get("tools") or {}
+    tool_validation = validate_tools_registry(strict=False)
+    profile_validation = validate_profiles_registry(strict=False)
+    add("tools_loadable", tool_validation.get("ok", False), f"invalid={tool_validation.get('invalid_count', 0)} skipped={tool_validation.get('skipped_count', 0)}")
+    add("tools_invalid_count", tool_validation.get("invalid_count", 0) == 0, str(tool_validation.get("invalid_count", 0)))
+    add("profiles_loadable", profile_validation.get("ok", False), f"invalid={profile_validation.get('invalid_count', 0)} skipped={profile_validation.get('skipped_count', 0)}")
+    add("profiles_invalid_count", profile_validation.get("invalid_count", 0) == 0, str(profile_validation.get("invalid_count", 0)))
+    for warning in tool_validation.get("warnings") or []:
+        add("tools_warning", False, warning)
+    for warning in profile_validation.get("warnings") or []:
+        add("profiles_warning", False, warning)
 
-    tools = config.get("tools") or {}
+    legacy_tools = config.get("tools") or {}
     agents = config.get("agents") or {}
-    for name, tool_cfg in tools.items():
+    loaded_tool_ids = {item["id"] for item in load_tools_registry()}
+    loaded_profile_ids = {item["id"] for item in load_profiles_registry()}
+    add("tools_registry_present", bool(loaded_tool_ids), ",".join(sorted(loaded_tool_ids)))
+    add("profiles_registry_present", bool(loaded_profile_ids), ",".join(sorted(loaded_profile_ids)))
+
+    for profile in load_profiles_registry():
+        allowed_tools = profile.get("allowed_tools") or []
+        add(f"profile:{profile['id']}:tools", all(tool_id in loaded_tool_ids for tool_id in allowed_tools), ",".join(allowed_tools))
+
+    for name, tool_cfg in legacy_tools.items():
         command = tool_cfg.get("command")
         add(f"tool:{name}", bool(command and shutil.which(command)), command or "missing command")
 
     for name, agent_cfg in agents.items():
-        add(f"agent:{name}:tool", agent_cfg.get("tool") in tools, str(agent_cfg.get("tool")))
+        add(f"agent:{name}:tool", agent_cfg.get("tool") in legacy_tools, str(agent_cfg.get("tool")))
         add(f"agent:{name}:status_vocab", True, ",".join(sorted(STATUS_VALUES)))
-        for profile in agent_cfg.get("fallback_profiles") or []:
-            ok = profile in PROFILE_MODELS or profile in (config.get("models") or {})
-            add(f"agent:{name}:fallback:{profile}", ok, PROFILE_MODELS.get(profile, ""))
+        for profile_name in agent_cfg.get("fallback_profiles") or []:
+            ok = profile_name in MODEL_FALLBACK_PROFILES or profile_name in (config.get("models") or {})
+            add(f"agent:{name}:fallback:{profile_name}", ok, MODEL_FALLBACK_PROFILES.get(profile_name, ""))
 
     add("state_dir_writable", os.access(STATE_DIR, os.W_OK), str(STATE_DIR))
     add("runs_dir_writable", os.access(RUNS_DIR, os.W_OK), str(RUNS_DIR))
@@ -2481,8 +2540,6 @@ def doctor_cmd(args):
         for name, ok, detail in checks:
             print(f"{name}: {'ok' if ok else 'fail'} {detail}")
     return 0 if all(ok for _, ok, _ in checks) else 1
-
-
 def config_validate_cmd(args):
     config = load_config()
     errors = []
@@ -2500,7 +2557,7 @@ def config_validate_cmd(args):
         if agent_cfg.get("autonomy") not in {"read_only", "workspace_write"}:
             errors.append(f"agent {name} has invalid autonomy {agent_cfg.get('autonomy')}")
         for profile in agent_cfg.get("fallback_profiles") or []:
-            if profile not in PROFILE_MODELS:
+            if profile not in MODEL_FALLBACK_PROFILES:
                 errors.append(f"agent {name} has unknown fallback profile {profile}")
     payload = {"ok": not errors, "errors": errors, "config_path": str(CONFIG_PATH)}
     if args.json:
@@ -2510,6 +2567,194 @@ def config_validate_cmd(args):
         for error in errors:
             print(f"- {error}")
     return 0 if not errors else 1
+
+
+def tool_list_cmd(args):
+    items = load_tools_registry()
+    payload = [
+        {
+            "id": item.get("id"),
+            "title": item.get("title"),
+            "description": item.get("description"),
+            "kind": item.get("kind"),
+            "enabled": item.get("enabled"),
+            "trust_level": item.get("trust_level"),
+            "egress": item.get("egress"),
+            "workspace_scoped": item.get("workspace_scoped"),
+            "profile_scope": item.get("profile_scope") or [],
+            "capabilities": item.get("capabilities") or [],
+            "source": item.get("source"),
+        }
+        for item in items
+    ]
+    print_json(payload)
+    return 0
+
+
+def tool_show_cmd(args):
+    item = tools_by_id().get(args.tool_id)
+    if not item:
+        raise SystemExit(f"Unknown tool: {args.tool_id}")
+    print_json(item)
+    return 0
+
+
+def tool_validate_cmd(args):
+    payload = validate_tools_registry(strict=False)
+    print_json(payload)
+    return 0 if payload.get("ok") else 1
+
+
+def resolve_profile(profile_id, *, workspace_override=None, agent_override=None, require_workspace=False):
+    profile = profiles_by_id().get(profile_id)
+    if not profile:
+        raise SystemExit(f"Unknown profile: {profile_id}")
+    workspace = workspace_override if workspace_override is not None else profile.get("workspace")
+    if require_workspace and profile.get("workspace_required") and not workspace:
+        raise SystemExit(f"Profile '{profile_id}' requires --workspace or a pinned workspace.")
+    workspace_cfg = None
+    cwd = None
+    memory_namespace = profile.get("memory_namespace")
+    if workspace:
+        workspace_cfg, cwd, workspace_memory_namespace = resolve_workspace_options(workspace)
+        if not memory_namespace:
+            memory_namespace = workspace_memory_namespace
+    agent_name = agent_override or profile.get("default_agent")
+    if agent_name not in (profile.get("allowed_agents") or []):
+        raise SystemExit(f"Agent '{agent_name}' is not allowed for profile '{profile_id}'.")
+    return {
+        "profile": profile,
+        "profile_id": profile_id,
+        "agent": agent_name,
+        "workspace": workspace,
+        "workspace_cfg": workspace_cfg,
+        "cwd": str(cwd) if cwd else None,
+        "memory_namespace": memory_namespace,
+        "allowed_tools": [tools_by_id()[tool_id] for tool_id in profile.get("allowed_tools") or [] if tool_id in tools_by_id()],
+    }
+
+
+def normalize_profile_goal_args(args, *, allow_timeout=False):
+    goal = []
+    tokens = list(args.goal)
+    i = 0
+    while i < len(tokens):
+        token = tokens[i]
+        if token == "--workspace" and i + 1 < len(tokens):
+            args.workspace = tokens[i + 1]
+            i += 1
+        elif token.startswith("--workspace="):
+            args.workspace = token.split("=", 1)[1]
+        elif token == "--agent" and i + 1 < len(tokens):
+            args.agent = tokens[i + 1]
+            i += 1
+        elif token.startswith("--agent="):
+            args.agent = token.split("=", 1)[1]
+        elif token == "--json":
+            args.json = True
+        elif token == "--dry-run":
+            args.dry_run = True
+        elif allow_timeout and token == "--timeout" and i + 1 < len(tokens):
+            args.timeout = int(tokens[i + 1])
+            i += 1
+        elif allow_timeout and token.startswith("--timeout="):
+            args.timeout = int(token.split("=", 1)[1])
+        else:
+            goal.append(token)
+        i += 1
+    args.goal = goal
+    return args
+
+
+def profile_list_cmd(args):
+    payload = [
+        {
+            "id": item.get("id"),
+            "title": item.get("title"),
+            "description": item.get("description"),
+            "default_agent": item.get("default_agent"),
+            "allowed_agents": item.get("allowed_agents") or [],
+            "workspace": item.get("workspace"),
+            "workspace_required": item.get("workspace_required"),
+            "allowed_tools": item.get("allowed_tools") or [],
+            "source": item.get("source"),
+        }
+        for item in load_profiles_registry()
+    ]
+    print_json(payload)
+    return 0
+
+
+def profile_show_cmd(args):
+    resolved = resolve_profile(args.profile_id)
+    payload = dict(resolved["profile"])
+    payload["resolved"] = {
+        "agent": resolved["agent"],
+        "workspace": resolved["workspace"],
+        "cwd": resolved["cwd"],
+        "memory_namespace": resolved["memory_namespace"],
+        "tools": [tool.get("id") for tool in resolved["allowed_tools"]],
+    }
+    print_json(payload)
+    return 0
+
+
+def profile_validate_cmd(args):
+    payload = validate_profiles_registry(strict=False)
+    print_json(payload)
+    return 0 if payload.get("ok") else 1
+
+
+def profile_run_cmd(args):
+    args = normalize_profile_goal_args(args, allow_timeout=True)
+    resolved = resolve_profile(args.profile_id, workspace_override=args.workspace, agent_override=args.agent, require_workspace=True)
+    goal = " ".join(args.goal).strip() or (resolved["profile"].get("default_run_goal") or "")
+    if not goal:
+        raise SystemExit("Goal is required")
+    run_args = argparse.Namespace(
+        agent=resolved["agent"],
+        prompt=[goal],
+        model=None,
+        workspace=resolved["workspace"],
+        no_memory=False,
+        memory_query=None,
+        memory_preview=False,
+        fallback=False,
+        approve=[],
+        dry_run=bool(args.dry_run),
+        timeout=args.timeout,
+        json=True,
+    )
+    return run_task(run_args)
+
+
+def profile_plan_cmd(args):
+    args = normalize_profile_goal_args(args, allow_timeout=False)
+    resolved = resolve_profile(args.profile_id, workspace_override=args.workspace, agent_override=args.agent, require_workspace=True)
+    goal = " ".join(args.goal).strip() or (resolved["profile"].get("default_plan_goal") or "")
+    if not goal:
+        raise SystemExit("Goal is required")
+    if not resolved["workspace"]:
+        raise SystemExit(f"Profile '{args.profile_id}' requires a workspace for planning.")
+    pid = plan_id()
+    plan = default_plan_for_goal(pid, resolved["workspace"], resolved["memory_namespace"], goal)
+    plan["profile_id"] = args.profile_id
+    plan["profile"] = {
+        "default_agent": resolved["profile"].get("default_agent"),
+        "allowed_agents": resolved["profile"].get("allowed_agents") or [],
+        "allowed_tools": resolved["profile"].get("allowed_tools") or [],
+    }
+    errors = validate_plan_shape(plan)
+    if errors:
+        plan["status"] = "rejected"
+        plan["validation_errors"] = errors
+    pdir = plan_dir(pid)
+    pdir.mkdir(parents=True, exist_ok=False)
+    (pdir / "goal.txt").write_text(goal + "\n", encoding="utf-8")
+    save_plan(plan)
+    update_plan_status_file(plan)
+    print_json({"plan_id": pid, "status": plan.get("status"), "plan_dir": str(pdir), "profile_id": args.profile_id, "validation_errors": plan.get("validation_errors", [])})
+    return 0 if not errors else 2
 
 
 def telegram_status_payload():
@@ -2818,18 +3063,23 @@ def assistant_exec_cmd(args):
         "list_plans": list_plans,
         "load_config": load_config,
         "load_plan": load_plan,
+        "load_profiles_registry": load_profiles_registry,
         "load_runbooks": runbooks_mod.load_runbooks,
+        "load_tools_registry": load_tools_registry,
         "load_workspaces": load_workspaces,
         "now_iso": now_iso,
         "paused_file": PAUSED_FILE,
         "plan_dir": plan_dir,
         "plan_id": plan_id,
+        "profiles_by_id": profiles_by_id,
         "queue_id": queue_id,
         "queue_item_from_schedule": queue_item_from_schedule,
+        "resolve_profile": resolve_profile,
         "resolve_workspace_options": resolve_workspace_options,
         "retry_plan_subtask": retry_plan_subtask_action,
         "save_plan": save_plan,
         "schedule_by_name": schedule_by_name,
+        "tools_by_id": tools_by_id,
         "update_plan_status_file": update_plan_status_file,
     }
     result = actions_mod.execute_route(payload, dry_run=False, deps=deps)
@@ -2910,6 +3160,26 @@ def selftest_cmd(args):
     agentctl = resolve_agentctl_bin()
     steps.append(run_selftest_step("doctor", [agentctl, "doctor"]))
     steps.append(run_selftest_step("config_validate", [agentctl, "config", "validate"]))
+    steps.append(run_selftest_step("tool_list_json", [agentctl, "tool", "list", "--json"]))
+    steps.append(run_selftest_step("tool_show_web_fetch", [agentctl, "tool", "show", "web_fetch", "--json"]))
+    steps.append(run_selftest_step("tool_validate_json", [agentctl, "tool", "validate", "--json"]))
+    steps.append(run_selftest_step("profile_list_json", [agentctl, "profile", "list", "--json"]))
+    steps.append(run_selftest_step("profile_show_runtime_dev", [agentctl, "profile", "show", "runtime-dev", "--json"]))
+    steps.append(run_selftest_step("profile_validate_json", [agentctl, "profile", "validate", "--json"]))
+    steps.append(run_selftest_step("profile_run_dry_run", [agentctl, "profile", "run", "runtime-dev", "inspect", "repo", "status", "--workspace", "test-ws", "--dry-run", "--json"]))
+    profile_plan_step = run_selftest_step("profile_plan", [agentctl, "profile", "plan", "runtime-dev", "improve", "tests", "--workspace", "test-ws", "--json"])
+    steps.append(profile_plan_step)
+    if profile_plan_step["ok"]:
+        try:
+            profile_plan_payload = json.loads(profile_plan_step["stdout"])
+            profile_plan_id = profile_plan_payload.get("plan_id")
+            if profile_plan_id:
+                profile_plan_status = run_selftest_step("profile_plan_show", [agentctl, "plan", "show", profile_plan_id, "--json"])
+                steps.append(profile_plan_status)
+        except Exception as exc:
+            steps.append({"name": "profile_plan_show", "ok": False, "returncode": None, "expected_returncode": 0, "stdout": "", "stderr": str(exc)})
+    else:
+        steps.append({"name": "profile_plan_show", "ok": False, "returncode": None, "expected_returncode": 0, "stdout": "", "stderr": "profile plan failed"})
     steps.append(run_selftest_step("inspect_coder", [agentctl, "inspect", "coder"]))
     steps.append(run_selftest_step("dry_run_git_push_blocks", [agentctl, "run", "coder", "Please git push this change", "--dry-run"], expect_code=2))
     steps.append(run_selftest_step("dry_run_git_push_approved", [agentctl, "run", "coder", "Please git push this change", "--approve", "git_push", "--dry-run"]))
@@ -3068,6 +3338,8 @@ def selftest_cmd(args):
 
 def smoke_cmd(args):
     ensure_state()
+    tool_validation = validate_tools_registry(strict=True)
+    profile_validation = validate_profiles_registry(strict=True)
     payload = {
         "version": load_version(),
         "config_exists": CONFIG_PATH.exists(),
@@ -3079,8 +3351,12 @@ def smoke_cmd(args):
         "amb_adapter_importable": AMBAdapter is not None,
         "agentbot_bin": resolve_agentbot_bin(),
         "agentbot_resolves": bool(resolve_agentbot_bin()),
+        "tools_ok": bool(tool_validation.get("ok")),
+        "profiles_ok": bool(profile_validation.get("ok")),
+        "tools_invalid_count": int(tool_validation.get("invalid_count", 0)),
+        "profiles_invalid_count": int(profile_validation.get("invalid_count", 0)),
     }
-    ok = payload["config_exists"] and payload["amb_adapter_importable"]
+    ok = payload["config_exists"] and payload["amb_adapter_importable"] and payload["tools_ok"] and payload["profiles_ok"]
     if args.json:
         print_json({"ok": ok, **payload})
     else:
@@ -3093,7 +3369,7 @@ def smoke_cmd(args):
 def version_cmd(args):
     payload = {
         "version": load_version(),
-        "contract": "agentctl-v1.3.1",
+        "contract": "agentctl-v1.4.0",
         "daemon": True,
         "telegram": True,
         "config": str(CONFIG_PATH),
@@ -3128,53 +3404,8 @@ def amb_health_cmd(args):
 
 
 
-    adapter = AMBAdapter()
-    results = []
-    for candidate in recommended:
-        content_payload = {k: v for k, v in candidate.items() if k not in ["writeback_recommended"]}
-        result = adapter.store(
-            namespace=namespace,
-            kind="memory",
-            content=content_payload,
-            tags=[
-                f"kind:{candidate.get('record_type')}",
-                namespace, # e.g. project:runtime-agents
-                "source:runtime-agents",
-                f"task:{args.task_id}"
-            ],
-            actor="runtime-agents",
-            source_app="agentctl",
-            source_client="runtime-agents",
-            source_model=task.get("model"),
-            client_session_id=f"task:{args.task_id}",
-            client_workspace=queue_item.get("workspace"),
-            client_transport="stdio",
-            session_id=args.task_id,
-            correlation_id=queue_item.get("queue_id") or args.task_id,
-            title=candidate.get("title"),
-        )
-        if args.verify and result and result.get("ok") and result.get("id"):
-            verify = adapter.recall(namespace, candidate.get("title") or candidate.get("claim") or result.get("id"), limit=10)
-            items = ((verify.get("response") or {}).get("items") or []) if verify.get("ok") else []
-            result["verified"] = any(item.get("id") == result.get("id") for item in items if isinstance(item, dict))
-        results.append(result)
-
-    writeback_receipt = {
-        "task_id": args.task_id,
-        "namespace": namespace,
-        "status": "completed",
-        "records": results
-    }
-    (run_dir / "writeback.json").write_text(json.dumps(writeback_receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-
-    if args.json:
-        print_json(writeback_receipt)
-    else:
-        print(f"Successfully wrote {len(results)} records to namespace '{namespace}'.")
-
-    return 0
 # v0.5.0 and v0.6.0 additions
-WORKSPACES_PATH = Path.home() / ".config" / "runtime-agents" / "workspaces.yaml"
+WORKSPACES_PATH = config_home() / "workspaces.yaml"
 
 def load_workspaces():
     if not WORKSPACES_PATH.exists():
@@ -3719,6 +3950,48 @@ def main():
     config_validate = config_sub.add_parser("validate")
     config_validate.add_argument("--json", action="store_true")
     config_validate.set_defaults(func=config_validate_cmd)
+
+    tool = sub.add_parser("tool")
+    tool_sub = tool.add_subparsers(dest="tool_cmd", required=True)
+    tool_list = tool_sub.add_parser("list")
+    tool_list.add_argument("--json", action="store_true")
+    tool_list.set_defaults(func=tool_list_cmd)
+    tool_show = tool_sub.add_parser("show")
+    tool_show.add_argument("tool_id")
+    tool_show.add_argument("--json", action="store_true")
+    tool_show.set_defaults(func=tool_show_cmd)
+    tool_validate = tool_sub.add_parser("validate")
+    tool_validate.add_argument("--json", action="store_true")
+    tool_validate.set_defaults(func=tool_validate_cmd)
+
+    profile = sub.add_parser("profile")
+    profile_sub = profile.add_subparsers(dest="profile_cmd", required=True)
+    profile_list = profile_sub.add_parser("list")
+    profile_list.add_argument("--json", action="store_true")
+    profile_list.set_defaults(func=profile_list_cmd)
+    profile_show = profile_sub.add_parser("show")
+    profile_show.add_argument("profile_id")
+    profile_show.add_argument("--json", action="store_true")
+    profile_show.set_defaults(func=profile_show_cmd)
+    profile_validate = profile_sub.add_parser("validate")
+    profile_validate.add_argument("--json", action="store_true")
+    profile_validate.set_defaults(func=profile_validate_cmd)
+    profile_run = profile_sub.add_parser("run")
+    profile_run.add_argument("profile_id")
+    profile_run.add_argument("goal", nargs=argparse.REMAINDER)
+    profile_run.add_argument("--workspace")
+    profile_run.add_argument("--agent")
+    profile_run.add_argument("--dry-run", action="store_true")
+    profile_run.add_argument("--timeout", type=int, default=600)
+    profile_run.add_argument("--json", action="store_true")
+    profile_run.set_defaults(func=profile_run_cmd)
+    profile_plan = profile_sub.add_parser("plan")
+    profile_plan.add_argument("profile_id")
+    profile_plan.add_argument("goal", nargs=argparse.REMAINDER)
+    profile_plan.add_argument("--workspace")
+    profile_plan.add_argument("--agent")
+    profile_plan.add_argument("--json", action="store_true")
+    profile_plan.set_defaults(func=profile_plan_cmd)
 
     selftest = sub.add_parser("selftest")
     selftest.add_argument("--json", action="store_true")

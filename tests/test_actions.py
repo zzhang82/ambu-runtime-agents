@@ -38,6 +38,25 @@ class ActionsTests(unittest.TestCase):
         self.assertEqual(result.status, "failed")
         self.assertIn("Unknown task id", result.error)
 
+    def test_profile_run_executes(self):
+        route = {"status": "matched", "risk": "read_only"}
+        result = actions.execute_action(
+            {"type": "profile_run", "profile_id": "runtime-dev", "goal": "inspect repo status"},
+            route,
+            deps={
+                "resolve_profile": lambda *_args, **_kwargs: {
+                    "profile": {"default_run_goal": "inspect repo status"},
+                    "agent": "planner",
+                    "workspace": "test-ws",
+                    "cwd": "/tmp/test-ws",
+                    "memory_namespace": "project:test-ws",
+                    "allowed_tools": [{"id": "web_fetch"}],
+                }
+            },
+        )
+        self.assertTrue(result.ok)
+        self.assertEqual(result.result["type"], "profile_run")
+
     def test_execute_route_preserves_matched_status_on_success(self):
         route = {"status": "matched", "risk": "read_only", "actions": [{"type": "list_workspaces"}]}
         payload = actions.execute_route(route, deps={"load_workspaces": lambda: {}})

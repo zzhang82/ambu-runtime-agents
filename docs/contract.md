@@ -1,4 +1,4 @@
-# runtime-agents Contract (v1.3.1)
+# runtime-agents Contract (v1.4.0)
 
 ## Commands
 - agentctl
@@ -8,6 +8,8 @@
 ## Config Paths
 - ~/.config/runtime-agents/
 - ~/.config/runtime-agents/runbooks/
+- ~/.config/runtime-agents/profiles.yaml
+- ~/.config/runtime-agents/tools.yaml
 
 ## State Paths
 - ~/.local/share/runtime-agents/
@@ -28,6 +30,14 @@
 - agentctl runbook show <runbook_id> --json
 - agentctl runbook validate --json
 - agentctl runbook validate --strict --json
+- agentctl tool list --json
+- agentctl tool show <tool_id> --json
+- agentctl tool validate --json
+- agentctl profile list --json
+- agentctl profile show <profile_id> --json
+- agentctl profile validate --json
+- agentctl profile run <profile_id> <goal...> --dry-run --json
+- agentctl profile plan <profile_id> <goal...> --json
 - agentctl assistant-route <message> --json
 - agentctl assistant-exec <message> --json
 
@@ -80,12 +90,18 @@
 - `list_queue`
 - `list_plans`
 - `list_schedules`
+- `list_profiles`
+- `show_profile`
+- `list_tools`
+- `show_tool`
 - `show_task`
 - `show_logs`
 - `show_plan`
 - `submit_run`
 - `submit_iterate`
 - `create_plan`
+- `profile_run`
+- `profile_plan`
 - `repair_plan`
 - `retry_plan_subtask`
 - `retry_schedule`
@@ -93,5 +109,7 @@
 - `resume`
 
 ## Version contract
-- `agentctl version --json` reports contract `agentctl-v1.3.1`.
+- `agentctl version --json` reports the installed `runtime-agents` package version.
+- `agentctl version --json` reports contract `agentctl-v1.4.0`.
 - The repo source is the authority for installed `agentctl` and `agentbot` behavior.
+- Config-home `VERSION` may exist for local runtime metadata, but it is not the public release version source of truth.

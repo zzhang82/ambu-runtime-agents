@@ -74,6 +74,44 @@ def make_env(base_dir: Path):
         },
     }
     (config_home / "agents.yaml").write_text(yaml.safe_dump(agents, sort_keys=False), encoding="utf-8")
+    (config_home / "tools.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "tools": {
+                    "web_fetch": {
+                        "title": "Web Fetch",
+                        "description": "Fetch public webpages.",
+                        "kind": "builtin",
+                        "enabled": True,
+                        "command": None,
+                        "args": [],
+                        "trust_level": "untrusted_input",
+                        "data_classes": ["public_web"],
+                        "egress": "public_web",
+                        "capabilities": ["web_read"],
+                        "workspace_scoped": False,
+                        "profile_scope": ["runtime-dev"],
+                    },
+                    "workspace_files": {
+                        "title": "Workspace Files",
+                        "description": "Read and edit workspace files.",
+                        "kind": "builtin",
+                        "enabled": True,
+                        "command": None,
+                        "args": [],
+                        "trust_level": "trusted",
+                        "data_classes": ["workspace_files"],
+                        "egress": "none",
+                        "capabilities": ["filesystem_read", "filesystem_write"],
+                        "workspace_scoped": True,
+                        "profile_scope": ["runtime-dev"],
+                    },
+                }
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
     workspace_path = base_dir / "workspace"
     workspace_path.mkdir()
     workspaces = {
@@ -83,6 +121,28 @@ def make_env(base_dir: Path):
         }
     }
     (config_home / "workspaces.yaml").write_text(yaml.safe_dump(workspaces, sort_keys=False), encoding="utf-8")
+    (config_home / "profiles.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "profiles": {
+                    "runtime-dev": {
+                        "title": "Runtime Development",
+                        "description": "Default runtime development profile.",
+                        "default_agent": "planner",
+                        "allowed_agents": ["planner", "reviewer", "coder"],
+                        "workspace_required": True,
+                        "allowed_tools": ["web_fetch", "workspace_files"],
+                        "blocked_capabilities": ["git_push", "deploy", "secrets", "global_config", "destructive_delete", "global_install"],
+                        "approval_required": ["workspace_write", "git_push", "deploy"],
+                        "default_run_goal": "inspect repo status",
+                        "default_plan_goal": "improve tests",
+                    }
+                }
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
     env = os.environ.copy()
     env["PYTHONPATH"] = str(ROOT / "src")
     env["RUNTIME_AGENTS_CONFIG_HOME"] = str(config_home)
@@ -103,8 +163,8 @@ class RuntimeAgentsSmokeTests(unittest.TestCase):
         proc = run_cli(["version", "--json"], self.env)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         payload = json.loads(proc.stdout)
-        self.assertEqual(payload["version"], "1.1.1")
-        self.assertEqual(payload["contract"], "agentctl-v1.3.1")
+        self.assertEqual(payload["version"], "1.4.0")
+        self.assertEqual(payload["contract"], "agentctl-v1.4.0")
 
     def test_runbook_commands(self):
         listed = run_cli(["runbook", "list", "--json"], self.env)
@@ -236,6 +296,11 @@ class RuntimeAgentsSmokeTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         payload = json.loads(proc.stdout)
         self.assertTrue(payload["ok"])
+        self.assertEqual(payload["version"], "1.4.0")
+        self.assertTrue(payload["tools_ok"])
+        self.assertTrue(payload["profiles_ok"])
+        self.assertEqual(payload["tools_invalid_count"], 0)
+        self.assertEqual(payload["profiles_invalid_count"], 0)
 
     def test_queue_empty_json(self):
         proc = run_cli(["queue", "--json"], self.env)
@@ -258,6 +323,52 @@ class RuntimeAgentsSmokeTests(unittest.TestCase):
         payload = json.loads(create.stdout)
         show = run_cli(["plan", "show", payload["plan_id"], "--json"], self.env)
         self.assertEqual(show.returncode, 0, show.stderr)
+
+    def test_tool_commands(self):
+        listed = run_cli(["tool", "list", "--json"], self.env)
+        self.assertEqual(listed.returncode, 0, listed.stderr)
+        items = json.loads(listed.stdout)
+        self.assertTrue(any(item["id"] == "web_fetch" for item in items))
+
+        shown = run_cli(["tool", "show", "web_fetch", "--json"], self.env)
+        self.assertEqual(shown.returncode, 0, shown.stderr)
+        self.assertEqual(json.loads(shown.stdout)["id"], "web_fetch")
+
+        validated = run_cli(["tool", "validate", "--json"], self.env)
+        self.assertEqual(validated.returncode, 0, validated.stderr)
+        self.assertTrue(json.loads(validated.stdout)["ok"])
+
+    def test_profile_commands(self):
+        listed = run_cli(["profile", "list", "--json"], self.env)
+        self.assertEqual(listed.returncode, 0, listed.stderr)
+        items = json.loads(listed.stdout)
+        self.assertTrue(any(item["id"] == "runtime-dev" for item in items))
+
+        shown = run_cli(["profile", "show", "runtime-dev", "--json"], self.env)
+        self.assertEqual(shown.returncode, 0, shown.stderr)
+        shown_payload = json.loads(shown.stdout)
+        self.assertEqual(shown_payload["id"], "runtime-dev")
+
+        validated = run_cli(["profile", "validate", "--json"], self.env)
+        self.assertEqual(validated.returncode, 0, validated.stderr)
+        self.assertTrue(json.loads(validated.stdout)["ok"])
+
+    def test_profile_run_dry_run(self):
+        proc = run_cli(["profile", "run", "runtime-dev", "inspect", "repo", "status", "--workspace", "test-ws", "--dry-run", "--json"], self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertEqual(payload["status"], "dry_run_ok")
+        self.assertEqual(payload["workspace"], "test-ws")
+
+    def test_profile_plan(self):
+        proc = run_cli(["profile", "plan", "runtime-dev", "improve", "tests", "--workspace", "test-ws", "--json"], self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertIn("plan_id", payload)
+        shown = run_cli(["plan", "show", payload["plan_id"], "--json"], self.env)
+        self.assertEqual(shown.returncode, 0, shown.stderr)
+        plan = json.loads(shown.stdout)
+        self.assertEqual(plan["profile_id"], "runtime-dev")
 
     def test_assistant_route_basic(self):
         proc = run_cli(["assistant-route", "what needs attention?", "--json"], self.env)

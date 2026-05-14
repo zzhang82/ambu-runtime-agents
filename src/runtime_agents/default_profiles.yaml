@@ -1,0 +1,28 @@
+profiles:
+  runtime-dev:
+    title: Runtime Development
+    description: Default profile for developing and validating the runtime-agents control plane.
+    default_agent: planner
+    allowed_agents:
+      - planner
+      - reviewer
+      - coder
+    workspace: null
+    workspace_required: true
+    memory_namespace: null
+    allowed_tools:
+      - web_fetch
+      - workspace_files
+    blocked_capabilities:
+      - git_push
+      - deploy
+      - secrets
+      - global_config
+      - destructive_delete
+      - global_install
+    approval_required:
+      - workspace_write
+      - git_push
+      - deploy
+    default_run_goal: Inspect the workspace state and report the next safe engineering action.
+    default_plan_goal: Analyze the requested runtime-agents change and create a safe implementation plan.
