@@ -12,8 +12,14 @@ def state_home() -> Path:
     return Path(os.environ.get("RUNTIME_AGENTS_STATE_HOME", str(Path.home() / ".local" / "share" / "runtime-agents"))).expanduser()
 
 
-def resolve_agentctl_bin() -> str:
-    return os.environ.get("RUNTIME_AGENTS_AGENTCTL_BIN") or shutil.which("agentctl") or sys.argv[0]
+def resolve_agentctl_bin() -> str | list[str]:
+    configured = os.environ.get("RUNTIME_AGENTS_AGENTCTL_BIN")
+    if configured:
+        return configured
+    project_root = Path(__file__).resolve().parents[2]
+    if Path.cwd().resolve() == project_root:
+        return [sys.executable, "-m", "runtime_agents.cli"]
+    return shutil.which("agentctl") or sys.argv[0]
 
 
 def resolve_agentbot_bin() -> str:

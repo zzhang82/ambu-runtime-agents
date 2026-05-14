@@ -10,7 +10,7 @@ from runtime_agents import policy as policy_mod
 
 ALLOWED_TOOL_KINDS = {"builtin", "mcp", "cli", "service"}
 ALLOWED_TRUST_LEVELS = {"trusted", "untrusted_input", "untrusted_output", "mixed"}
-ALLOWED_EGRESS = {"none", "local_only", "public_web", "private_network", "mixed"}
+ALLOWED_EGRESS = {"none", "local_only", "public_web", "private_network", "mixed", "telegram", "email", "web", "broker"}
 LOCAL_TOOL_CAPABILITIES = {"web_read", "filesystem_read", "filesystem_write", "browser_read", "browser_write", "api_call", "mcp_use"}
 
 

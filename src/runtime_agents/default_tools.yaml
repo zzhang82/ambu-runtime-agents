@@ -1,4 +1,36 @@
 tools:
+  repo_read:
+    title: Repo Read
+    description: Read repository files inside the active workspace without writing.
+    kind: builtin
+    enabled: true
+    command: null
+    args: []
+    trust_level: trusted
+    data_classes:
+      - project_source
+    egress: none
+    capabilities:
+      - filesystem_read
+    workspace_scoped: true
+    profile_scope:
+      - runtime-dev
+  telegram_notify:
+    title: Telegram Notify
+    description: Send outbound notifications to Telegram.
+    kind: builtin
+    enabled: true
+    command: null
+    args: []
+    trust_level: trusted
+    data_classes:
+      - workspace_files
+    egress: telegram
+    capabilities:
+      - api_call
+    workspace_scoped: false
+    profile_scope:
+      - shopping-watch
   web_fetch:
     title: Web Fetch
     description: Fetch public webpages and return metadata-first results.
@@ -29,6 +61,7 @@ tools:
     capabilities:
       - filesystem_read
       - filesystem_write
+      - workspace_write
     workspace_scoped: true
     profile_scope:
       - runtime-dev

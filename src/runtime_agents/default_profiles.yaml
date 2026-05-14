@@ -11,6 +11,7 @@ profiles:
     workspace_required: true
     memory_namespace: null
     allowed_tools:
+      - repo_read
       - web_fetch
       - workspace_files
     blocked_capabilities:
@@ -26,3 +27,23 @@ profiles:
       - deploy
     default_run_goal: Inspect the workspace state and report the next safe engineering action.
     default_plan_goal: Analyze the requested runtime-agents change and create a safe implementation plan.
+  shopping-watch:
+    title: Shopping Watch
+    description: Review shopping opportunities and allow notifications, but never complete purchases.
+    default_agent: planner
+    allowed_agents:
+      - planner
+      - reviewer
+    workspace: null
+    workspace_required: false
+    memory_namespace: null
+    allowed_tools:
+      - telegram_notify
+    blocked_capabilities:
+      - external_purchase
+      - checkout
+      - payment
+      - captcha_bypass
+    approval_required: []
+    default_run_goal: Review an item and draft a notification-only summary.
+    default_plan_goal: Create a plan to review an item without purchasing.
