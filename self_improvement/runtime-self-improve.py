@@ -559,6 +559,16 @@ def main():
                         print(f"NO LOCK: {s}"); errors += 1
                 if errors == 0: print("Lifecycle OK.")
                 else: sys.exit(1)
+        elif args.skill_command == "lock":
+            lock_file = os.path.join(GLOBAL_SKILLS_PATH, "skills.lock.json")
+            lock_data = {"schema_version": "0.1", "skills": {}}
+            for d in os.listdir(GLOBAL_SKILLS_PATH):
+                if os.path.isdir(os.path.join(GLOBAL_SKILLS_PATH, d)) and not d.startswith("."):
+                    h = get_skill_hash(os.path.join(GLOBAL_SKILLS_PATH, d))
+                    if h: lock_data["skills"][d] = {"hash": h, "locked_at": datetime.now().isoformat() + "Z"}
+            with open(lock_file, "w") as f:
+                json.dump(lock_data, f, indent=2)
+            print(f"Locked {len(lock_data['skills'])} skills.")
         elif args.skill_command == "verify":
             lock_file = os.path.join(GLOBAL_SKILLS_PATH, "skills.lock.json")
             lock_data = json.load(open(lock_file)); locked_skills = lock_data.get("skills", {})
