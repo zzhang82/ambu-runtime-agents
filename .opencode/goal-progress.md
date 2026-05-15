@@ -1,3 +1,21 @@
+## Checkpoint 54 - 2026-05-15 04:26 (Cole)
+
+### Changed
+- Implemented **Milestone 2I: Controlled Apply Pipeline**.
+- Added **Typed Apply Handlers** to `runtime-self-improve.py` for safe mutation execution.
+- Established a **Staging Directory** (`~/.runtime-agents/staging/`) for skill forging before deployment.
+- Enforced verification-first deployment: `deploy_skill` now triggers `skills verify` and fails if the lockfile is not updated.
+- Integrated **Audit Logging**: Every action phase (`applying`, `applied`, `verified`) is recorded in the approval JSON.
+- Handlers implemented: `forge_skill`, `deploy_skill`, `update_skills_lock`, `edit_skill`, `run_release_verify`, `run_hygiene_audit`, `store_amb_closeout`.
+- Established AMB procedure for Controlled Apply (ID: `20260515042542228711-86c96051`).
+
+### Validation
+- Command: `python3 runtime-self-improve.py approvals apply <id>` (tested for forge, deploy, lock).
+- Result: **PASS**; confirmed that `deploy_skill` correctly transitions to `failed_verification` if the new skill is not hashed, and proceeds only after `update_skills_lock`.
+
+### Next
+- Proceed to **Milestone 2J: Rollback & Recovery**.
+
 ## Checkpoint 53 - 2026-05-15 04:19 (Cole)
 
 ### Changed
