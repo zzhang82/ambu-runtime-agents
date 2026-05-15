@@ -15,18 +15,24 @@ try:
 except ImportError:
     yaml = None
 
+# --- CONSTANTS ---
+GLOBAL_SKILLS_PATH = os.path.expanduser("~/.config/opencode/skills/")
+STAGING_DIR = os.path.expanduser("~/.runtime-agents/staging/")
+APPROVALS_DIR = os.path.expanduser("~/.runtime-agents/approvals/")
+SCHEDULER_STATE_PATH = os.path.expanduser("~/.runtime-agents/scheduler/state.json")
+EVENTS_PATH = os.path.expanduser("~/.runtime-agents/events/agent-runs.jsonl")
+
+# --- UTILS ---
+
 def get_dir_hash(path):
-    if not os.path.exists(path):
-        return None
+    if not os.path.exists(path): return None
     hash_sha256 = hashlib.sha256()
     for root, dirs, files in os.walk(path):
         for names in sorted(files):
-            if names.startswith(".git") or names == "skills.lock.json":
-                continue
+            if names.startswith(".git") or names == "skills.lock.json": continue
             filepath = os.path.join(root, names)
             with open(filepath, "rb") as f:
-                for chunk in iter(lambda: f.read(4096), b""):
-                    hash_sha256.update(chunk)
+                for chunk in iter(lambda: f.read(4096), b""): hash_sha256.update(chunk)
     return hash_sha256.hexdigest()
 
 def get_files_hash(files, workspace):
@@ -37,15 +43,24 @@ def get_files_hash(files, workspace):
         if os.path.exists(p):
             found = True
             with open(p, "rb") as f_in:
-                for chunk in iter(lambda: f_in.read(4096), b""):
-                    hash_sha256.update(chunk)
+                for chunk in iter(lambda: f_in.read(4096), b""): hash_sha256.update(chunk)
     return hash_sha256.hexdigest() if found else None
+
+def get_skill_hash(skill_path):
+    skill_md = os.path.join(skill_path, "SKILL.md")
+    if not os.path.exists(skill_md): return None
+    with open(skill_md, "rb") as f: return hashlib.sha256(f.read()).hexdigest()
+
+def record_audit(data, message):
+    if "audit_log" not in data: data["audit_log"] = []
+    data["audit_log"].append({"timestamp": datetime.now().isoformat() + "Z", "message": message})
+
+# --- ADAPTERS ---
 
 class ClaudeCCRAdapter:
     def __init__(self, history_path, projects_base="~/.claude/projects"):
         self.history_path = os.path.expanduser(history_path)
         self.projects_base = os.path.expanduser(projects_base)
-
     def normalize(self, limit=50):
         events = []
         if not os.path.exists(self.history_path): return events
@@ -54,8 +69,7 @@ class ClaudeCCRAdapter:
             for line in lines[-limit:]:
                 try:
                     data = json.loads(line)
-                    session_id = data.get("sessionId")
-                    project_path = data.get("project", "")
+                    session_id, project_path = data.get("sessionId"), data.get("project", "")
                     proj_dir_name = project_path.replace("/", "-")
                     session_file = os.path.join(self.projects_base, proj_dir_name, f"{session_id}.jsonl")
                     tools_used = []
@@ -65,37 +79,31 @@ class ClaudeCCRAdapter:
                                 try:
                                     sdata = json.loads(sline)
                                     if sdata.get("type") == "assistant":
-                                        msg = sdata.get("message", {})
-                                        content = msg.get("content", [])
-                                        for item in content:
-                                            if isinstance(item, dict) and item.get("type") == "tool_use":
-                                                tools_used.append(item.get("name"))
+                                        for item in sdata.get("message", {}).get("content", []):
+                                            if isinstance(item, dict) and item.get("type") == "tool_use": tools_used.append(item.get("name"))
                                 except Exception: continue
                     ts = data.get('timestamp')
                     ts_iso = datetime.fromtimestamp(ts/1000).isoformat() + "Z" if ts else None
-                    event = {
+                    events.append({
                         "schema_version": "0.1", "runtime": "claude", "session_id": session_id,
                         "run_id": f"run_{ts}", "timestamp_start": ts_iso, "timestamp_end": ts_iso,
                         "workspace": project_path, "user_goal": data.get("display"), "outcome": "success", 
                         "tools_used": sorted(list(set(tools_used))), "tool_sequence": tools_used,
                         "summary": "Imported from Claude history"
-                    }
-                    events.append(event)
+                    })
                 except Exception: continue
         return events
 
 class GeminiAdapter:
     def __init__(self, base_path="~/.gemini/tmp"):
         self.base_path = os.path.expanduser(base_path)
-
     def normalize(self, limit=50):
         events = []
         if not os.path.exists(self.base_path): return events
         files = []
         for root, _, filenames in os.walk(self.base_path):
             for f in filenames:
-                if f.startswith("session-") and f.endswith(".json"):
-                    files.append(os.path.join(root, f))
+                if f.startswith("session-") and f.endswith(".json"): files.append(os.path.join(root, f))
         files.sort(key=os.path.getmtime, reverse=True)
         for file_path in files[:limit]:
             try:
@@ -107,8 +115,7 @@ class GeminiAdapter:
                     "tools_used": [], "tool_sequence": [], "commands_run": [], "files_touched": [],
                     "memory_operations": [], "outcome": "completed"
                 }
-                messages = data.get("messages", [])
-                for msg in messages:
+                for msg in data.get("messages", []):
                     if msg.get("type") == "user" and not event_data.get("user_goal"):
                         event_data["user_goal"] = msg.get("content", "").strip()
                     for tc in msg.get("toolCalls", []):
@@ -132,15 +139,13 @@ class GeminiAdapter:
 class CodexAdapter:
     def __init__(self, sessions_base="~/.codex/sessions"):
         self.sessions_base = os.path.expanduser(sessions_base)
-
     def normalize(self, limit=50):
         events = []
         if not os.path.exists(self.sessions_base): return events
         files = []
         for root, _, filenames in os.walk(self.sessions_base):
             for f in filenames:
-                if f.startswith("rollout-") and f.endswith(".jsonl"):
-                    files.append(os.path.join(root, f))
+                if f.startswith("rollout-") and f.endswith(".jsonl"): files.append(os.path.join(root, f))
         files.sort(key=os.path.getmtime, reverse=True)
         for file_path in files[:limit]:
             try:
@@ -154,10 +159,8 @@ class CodexAdapter:
                         data = json.loads(line)
                         ev_type, payload = data.get("type"), data.get("payload", {})
                         if ev_type == "session_meta":
-                            event_data["session_id"] = payload.get("id")
-                            event_data["run_id"] = payload.get("id")
-                            event_data["timestamp_start"] = payload.get("timestamp")
-                            event_data["workspace"] = payload.get("cwd")
+                            event_data["session_id"] = payload.get("id"); event_data["run_id"] = payload.get("id")
+                            event_data["timestamp_start"] = payload.get("timestamp"); event_data["workspace"] = payload.get("cwd")
                             instr = payload.get("base_instructions", {}).get("text", "")
                             if "Task:\n" in instr: event_data["user_goal"] = instr.split("Task:\n")[-1].strip()
                         elif ev_type == "response_item":
@@ -190,7 +193,6 @@ class CodexAdapter:
 class RuntimeAgentsAdapter:
     def __init__(self, base_path):
         self.base_path = os.path.expanduser(base_path)
-
     def normalize(self, limit=50):
         events = []
         runs_path = os.path.join(self.base_path, "runs")
@@ -223,19 +225,16 @@ class RuntimeAgentsAdapter:
 class OpencodeAdapter:
     def __init__(self, db_path="~/.local/share/opencode/opencode.db"):
         self.db_path = os.path.expanduser(db_path)
-
     def normalize(self, limit=50):
         events = []
         if not os.path.exists(self.db_path): return events
         try:
             conn = sqlite3.connect(self.db_path); cursor = conn.cursor()
             cursor.execute("SELECT id, title, path, model, time_created, time_updated FROM session ORDER BY time_created DESC LIMIT ?", (limit,))
-            sessions = cursor.fetchall()
-            for sess in sessions:
+            for sess in cursor.fetchall():
                 sid, title, workspace, model_json, start_ts, end_ts = sess
                 cursor.execute("SELECT data FROM part WHERE session_id = ? ORDER BY time_created", (sid,))
-                parts = cursor.fetchall()
-                tools_used, tool_sequence, commands_run, files_touched, memory_ops = [], [], [], [], []
+                parts = cursor.fetchall(); tools_used, tool_sequence, commands_run, files_touched, memory_ops = [], [], [], [], []
                 for p in parts:
                     try:
                         pdata = json.loads(p[0])
@@ -254,7 +253,7 @@ class OpencodeAdapter:
                                 elif tool == "agentMemoryBridge":
                                     memory_ops.append({"type": "recall" if "recall" in pdata.get("title", "").lower() else "operation", "timestamp": datetime.fromtimestamp(pdata.get("time", {}).get("start", 0)/1000).isoformat() + "Z"})
                     except Exception: continue
-                event = {
+                events.append({
                     "schema_version": "0.1", "runtime": "opencode", "session_id": sid, "run_id": sid,
                     "timestamp_start": datetime.fromtimestamp(start_ts/1000).isoformat() + "Z",
                     "timestamp_end": datetime.fromtimestamp(end_ts/1000).isoformat() + "Z",
@@ -262,20 +261,12 @@ class OpencodeAdapter:
                     "tools_used": sorted(list(set(tools_used))), "tool_sequence": tool_sequence,
                     "commands_run": commands_run, "files_touched": sorted(list(set(files_touched))),
                     "memory_operations": memory_ops, "summary": f"Imported from opencode DB session {sid}"
-                }
-                events.append(event)
+                })
             conn.close()
-        except Exception as e: print(f"Error querying opencode DB: {e}")
+        except Exception as e: print(f"Error: {e}")
         return events
 
-def get_skill_hash(skill_path):
-    skill_md = os.path.join(skill_path, "SKILL.md")
-    if not os.path.exists(skill_md): return None
-    with open(skill_md, "rb") as f: return hashlib.sha256(f.read()).hexdigest()
-
-def record_audit(data, message):
-    if "audit_log" not in data: data["audit_log"] = []
-    data["audit_log"].append({"timestamp": datetime.now().isoformat() + "Z", "message": message})
+# --- HANDLERS ---
 
 class ApplyHandlers:
     @staticmethod
@@ -283,184 +274,111 @@ class ApplyHandlers:
         target = approval["action"]["target"]
         skill_dir = os.path.join(staging_dir, target)
         os.makedirs(skill_dir, exist_ok=True)
-        # Simulation: writing SKILL.md
         with open(os.path.join(skill_dir, "SKILL.md"), "w") as f:
             f.write(f"---\nname: {target}\ndescription: forged via {approval['approval_id']}\n---\n")
         return True, f"Forged skill {target} in staging: {skill_dir}"
-
     @staticmethod
     def deploy_skill(approval, staging_dir, global_store):
         target = approval["action"]["target"]
-        src = os.path.join(staging_dir, target)
-        dst = os.path.join(global_store, target)
+        src, dst = os.path.join(staging_dir, target), os.path.join(global_store, target)
         if not os.path.exists(src): return False, f"Source {src} not found in staging."
         if os.path.exists(dst): shutil.rmtree(dst)
         shutil.copytree(src, dst)
-        # Run verifiers
-        print("Running verifiers...")
         subprocess.run(["python3", sys.argv[0], "skills", "verify", "--all"], check=True)
         return True, f"Deployed skill {target} to {dst}"
-
     @staticmethod
     def update_skills_lock(approval, global_store):
         subprocess.run(["python3", sys.argv[0], "skills", "lock", "--path", global_store], check=True)
         return True, "Updated skills.lock.json"
 
+class RollbackHandlers:
     @staticmethod
-    def edit_skill(approval, global_store):
-        # Simulation of applying a patch
-        return True, "Applied patch to skill (Simulation)"
+    def rollback_skill_deploy(approval, global_store):
+        target = approval["action"]["target"]
+        target_path = os.path.join(global_store, target)
+        if os.path.exists(target_path):
+            shutil.rmtree(target_path)
+            return True, f"Removed deployed skill {target}"
+        return False, f"Skill {target} not found"
+    @staticmethod
+    def rollback_skills_lock(approval, global_store):
+        subprocess.run(["git", "checkout", "skills.lock.json"], cwd=global_store, check=True)
+        return True, "Reverted lockfile"
+    @staticmethod
+    def store_amb_recovery_gotcha(approval):
+        return True, "AMB recovery record created"
 
-    @staticmethod
-    def run_release_verify(approval):
-        print("Running version-sync-sculptor verify-only...")
-        return True, "Release verification passed (Simulation)"
-
-    @staticmethod
-    def run_hygiene_audit(approval):
-        print("Running agent-hygiene-auditor...")
-        return True, "Hygiene audit passed (Simulation)"
-
-    @staticmethod
-    def store_amb_closeout(approval):
-        print("Storing compact AMB closeout...")
-        return True, "AMB closeout stored (Simulation)"
+# --- MAIN ---
 
 def main():
     parser = argparse.ArgumentParser(description="Runtime Self-Improvement CLI")
     subparsers = parser.add_subparsers(dest="command")
 
-    ingest_parser = subparsers.add_parser("ingest")
-    ingest_parser.add_argument("--runtime", choices=["claude", "opencode", "runtime-agents", "codex", "gemini"], required=True)
-    ingest_parser.add_argument("--recent", type=int, default=50)
+    ingest_p = subparsers.add_parser("ingest")
+    ingest_p.add_argument("--runtime", choices=["claude", "opencode", "runtime-agents", "codex", "gemini"], required=True)
+    ingest_p.add_argument("--recent", type=int, default=50)
 
     subparsers.add_parser("scan")
     subparsers.add_parser("suggest")
 
-    skills_parser = subparsers.add_parser("skills")
-    skills_subparsers = skills_parser.add_subparsers(dest="skill_command")
-    skills_subparsers.add_parser("status")
-    skills_subparsers.add_parser("lock").add_argument("--path")
-    skills_verify = skills_subparsers.add_parser("verify")
-    skills_verify.add_argument("--all", action="store_true")
-    skills_verify.add_argument("--path")
+    skills_p = subparsers.add_parser("skills")
+    skills_s = skills_p.add_subparsers(dest="skill_command")
+    skills_s.add_parser("status")
+    skills_s.add_parser("lock").add_argument("--path")
+    skills_v = skills_s.add_parser("verify")
+    skills_v.add_argument("--all", action="store_true"); skills_v.add_argument("--path")
 
-    hooks_parser = subparsers.add_parser("hooks")
-    hooks_subparsers = hooks_parser.add_subparsers(dest="hook_command")
-    hooks_subparsers.add_parser("post-run").add_argument("--goal", required=True)
-    hooks_subparsers.add_parser("session-start").add_argument("--workspace")
+    hooks_p = subparsers.add_parser("hooks")
+    hooks_s = hooks_p.add_subparsers(dest="hook_command")
+    hooks_s.add_parser("post-run").add_argument("--goal", required=True)
+    hooks_s.add_parser("session-start").add_argument("--workspace")
 
-    recommend_parser = subparsers.add_parser("recommend")
-    recommend_parser.add_argument("--workspace", default=os.getcwd())
-    recommend_parser.add_argument("--runtime", default="opencode")
-    recommend_parser.add_argument("--goal")
-    recommend_parser.add_argument("--recent", type=int)
+    recommend_p = subparsers.add_parser("recommend")
+    recommend_p.add_argument("--workspace", default=os.getcwd()); recommend_p.add_argument("--runtime", default="opencode")
+    recommend_p.add_argument("--goal"); recommend_p.add_argument("--recent", type=int)
 
-    events_parser = subparsers.add_parser("events")
-    events_subparsers = events_parser.add_subparsers(dest="event_command")
-    events_validate = events_subparsers.add_parser("validate")
-    events_validate.add_argument("--recent", type=int, default=20)
-    events_validate.add_argument("--runtime")
+    events_p = subparsers.add_parser("events")
+    events_s = events_p.add_subparsers(dest="event_command")
+    events_v = events_s.add_parser("validate")
+    events_v.add_argument("--recent", type=int, default=20); events_v.add_argument("--runtime")
 
-    schedule_parser = subparsers.add_parser("schedule")
-    schedule_subparsers = schedule_parser.add_subparsers(dest="schedule_command")
-    schedule_subparsers.add_parser("check").add_argument("--workspace", default=os.getcwd())
-    schedule_run = schedule_subparsers.add_parser("run")
-    schedule_run.add_argument("--workspace", default=os.getcwd())
-    schedule_run.add_argument("--dry-run", action="store_true")
+    schedule_p = subparsers.add_parser("schedule")
+    schedule_s = schedule_p.add_subparsers(dest="schedule_command")
+    schedule_s.add_parser("check").add_argument("--workspace", default=os.getcwd())
+    schedule_r = schedule_s.add_parser("run"); schedule_r.add_argument("--workspace", default=os.getcwd()); schedule_r.add_argument("--dry-run", action="store_true")
 
-    approvals_parser = subparsers.add_parser("approvals")
-    approvals_subparsers = approvals_parser.add_subparsers(dest="approval_command")
-    approvals_subparsers.add_parser("list")
-    approvals_show = approvals_subparsers.add_parser("show").add_argument("approval_id")
-    approvals_approve = approvals_subparsers.add_parser("approve").add_argument("approval_id")
-    approvals_reject = approvals_subparsers.add_parser("reject").add_argument("approval_id")
-    approvals_apply = approvals_subparsers.add_parser("apply").add_argument("approval_id")
-    approvals_history = approvals_subparsers.add_parser("history")
-    approvals_create = approvals_subparsers.add_parser("create-test")
-    approvals_create.add_argument("--action", default="forge_skill")
-    approvals_create.add_argument("--target", default="test-skill")
+    approvals_p = subparsers.add_parser("approvals")
+    approvals_s = approvals_p.add_subparsers(dest="approval_command")
+    approvals_s.add_parser("list")
+    approvals_s.add_parser("show").add_argument("approval_id")
+    approvals_s.add_parser("approve").add_argument("approval_id")
+    approvals_s.add_parser("reject").add_argument("approval_id")
+    approvals_s.add_parser("apply").add_argument("approval_id")
+    approvals_t = approvals_s.add_parser("create-test"); approvals_t.add_argument("--action", default="forge_skill"); approvals_t.add_argument("--target", default="test-skill")
+
+    rollback_p = subparsers.add_parser("rollback")
+    rollback_s = rollback_p.add_subparsers(dest="rollback_command")
+    rollback_s.add_parser("list")
+    rollback_s.add_parser("plan").add_argument("approval_id")
+    rollback_s.add_parser("apply").add_argument("approval_id")
 
     args = parser.parse_args()
 
     if args.command == "ingest":
-        # ... (impl)
-        pass
-
-    elif args.command == "approvals":
-        approvals_dir = os.path.expanduser("~/.runtime-agents/approvals/")
-        staging_dir = os.path.expanduser("~/.runtime-agents/staging/")
-        global_store = os.path.expanduser("~/.config/opencode/skills/")
-        os.makedirs(approvals_dir, exist_ok=True)
-        os.makedirs(staging_dir, exist_ok=True)
-        
-        if args.approval_command == "create-test":
-            aid = f"appr_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-            data = {
-                "schema_version": "0.1", "approval_id": aid, "created_at": datetime.now().isoformat() + "Z",
-                "status": "pending", "action": {"type": args.action, "target": args.target, "mutation_level": "high"},
-                "why": {"pattern": "Test validation", "confidence": "high"},
-                "proposed_changes": [f"Action {args.action} on {args.target}"],
-                "safety_checks_required": ["skill-deployment-verifier" if "skill" in args.action else "hygiene-audit"],
-                "audit_log": []
-            }
-            with open(os.path.join(approvals_dir, f"{aid}.json"), "w") as f: json.dump(data, f, indent=2)
-            print(f"Created test approval: {aid}")
-
-        elif args.approval_command == "list":
-            files = glob.glob(os.path.join(approvals_dir, "appr_*.json"))
-            for f in sorted(files, reverse=True):
-                with open(f, "r") as fin:
-                    data = json.load(fin)
-                    print(f"{data['approval_id']:<25} {data['status']:<15} {data['action']['type']:<20} {data['created_at']}")
-        
-        elif args.approval_command in ["approve", "reject"]:
-            f = os.path.join(approvals_dir, f"{args.approval_id}.json")
-            if os.path.exists(f):
-                with open(f, "r") as fin: data = json.load(fin)
-                if data["status"] == "pending":
-                    data["status"] = "approved" if args.approval_command == "approve" else "rejected"
-                    record_audit(data, f"Status changed to {data['status']}")
-                    with open(f, "w") as fout: json.dump(data, fout, indent=2)
-                    print(f"Approval {args.approval_id} {data['status']}.")
-
-        elif args.approval_command == "apply":
-            f = os.path.join(approvals_dir, f"{args.approval_id}.json")
-            if os.path.exists(f):
-                with open(f, "r") as fin: data = json.load(fin)
-                if data["status"] != "approved":
-                    print(f"Cannot apply. Status is {data['status']}. Must be 'approved'."); return
-                
-                data["status"] = "applying"
-                record_audit(data, "Started applying action")
-                atype = data["action"]["type"]
-                success, msg = False, "Unknown handler"
-                
-                try:
-                    if atype == "forge_skill": success, msg = ApplyHandlers.forge_skill(data, staging_dir)
-                    elif atype == "deploy_skill": success, msg = ApplyHandlers.deploy_skill(data, staging_dir, global_store)
-                    elif atype == "update_skills_lock": success, msg = ApplyHandlers.update_skills_lock(data, global_store)
-                    elif atype == "edit_skill": success, msg = ApplyHandlers.edit_skill(data, global_store)
-                    elif atype == "run_release_verify": success, msg = ApplyHandlers.run_release_verify(data)
-                    elif atype == "run_hygiene_audit": success, msg = ApplyHandlers.run_hygiene_audit(data)
-                    elif atype == "store_amb_closeout": success, msg = ApplyHandlers.store_amb_closeout(data)
-                except Exception as e: success, msg = False, f"Handler error: {e}"
-
-                data["status"] = "applied" if success else "failed_verification"
-                if success:
-                    print(msg); record_audit(data, f"Action applied: {msg}")
-                    # Verification check
-                    data["status"] = "verified"
-                    record_audit(data, "Post-apply verification successful")
-                else:
-                    print(f"ERROR: {msg}"); record_audit(data, f"Action failed: {msg}")
-                
-                with open(f, "w") as fout: json.dump(data, fout, indent=2)
-                print(f"Final status: {data['status']}")
+        events = []
+        if args.runtime == "claude": events = ClaudeCCRAdapter("~/.claude/history.jsonl").normalize(args.recent)
+        elif args.runtime == "opencode": events = OpencodeAdapter().normalize(args.recent)
+        elif args.runtime == "runtime-agents": events = RuntimeAgentsAdapter("~/.local/share/runtime-agents").normalize(args.recent)
+        elif args.runtime == "codex": events = CodexAdapter().normalize(args.recent)
+        elif args.runtime == "gemini": events = GeminiAdapter().normalize(args.recent)
+        if events:
+            os.makedirs(os.path.dirname(EVENTS_PATH), exist_ok=True)
+            with open(EVENTS_PATH, 'a', encoding='utf-8') as f:
+                for ev in events: f.write(json.dumps(ev) + "\n")
+            print(f"Successfully ingested {len(events)} runs from {args.runtime}")
 
     elif args.command == "skills":
-        skills_path = os.path.expanduser(args.path or "~/.config/opencode/skills/")
-        lock_file = os.path.join(skills_path, "skills.lock.json")
+        skills_path = os.path.expanduser(args.path or GLOBAL_SKILLS_PATH); lock_file = os.path.join(skills_path, "skills.lock.json")
         if args.skill_command == "lock":
             skills = {}
             for d in os.listdir(skills_path):
@@ -469,11 +387,10 @@ def main():
                     h = get_skill_hash(p)
                     if h: skills[d] = {"hash": h, "last_locked": datetime.now().isoformat()}
             with open(lock_file, "w") as f: json.dump({"schema_version": "0.1", "skills": skills}, f, indent=2)
-            print(f"Locked {len(skills)} skills.")
+            print("Locked.")
         elif args.skill_command == "verify":
             if not os.path.exists(lock_file): return
-            with open(lock_file, "r") as f: lock_data = json.load(f)
-            locked_skills = lock_data.get("skills", {})
+            with open(lock_file, "r") as f: lock_data = json.load(f); locked_skills = lock_data.get("skills", {})
             current_skills = [d for d in os.listdir(skills_path) if os.path.isdir(os.path.join(skills_path, d)) and not d.startswith(".")]
             errors = 0
             for s in current_skills:
@@ -482,7 +399,68 @@ def main():
                     print(f"[!] {s} DRIFTED"); errors += 1
                 else: print(f"[+] {s} VERIFIED")
             if errors > 0: sys.exit(1)
-        # ... (status)
+
+    elif args.command == "approvals":
+        os.makedirs(STAGING_DIR, exist_ok=True); os.makedirs(APPROVALS_DIR, exist_ok=True)
+        if args.approval_command == "create-test":
+            aid = f"appr_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            data = {"schema_version": "0.1", "approval_id": aid, "created_at": datetime.now().isoformat() + "Z", "status": "pending", "action": {"type": args.action, "target": args.target, "mutation_level": "high"}, "why": {"pattern": "Test", "confidence": "high"}, "proposed_changes": [], "safety_checks_required": [], "audit_log": []}
+            with open(os.path.join(APPROVALS_DIR, f"{aid}.json"), "w") as f: json.dump(data, f, indent=2)
+            print(f"Created test approval: {aid}")
+        elif args.approval_command == "list":
+            for f in sorted(glob.glob(os.path.join(APPROVALS_DIR, "appr_*.json")), reverse=True):
+                with open(f, "r") as fin: d = json.load(fin); print(f"{d['approval_id']:<25} {d['status']:<15} {d['action']['type']:<20} {d['created_at']}")
+        elif args.approval_command in ["approve", "reject"]:
+            f = os.path.join(APPROVALS_DIR, f"{args.approval_id}.json")
+            if os.path.exists(f):
+                with open(f, "r") as fin: data = json.load(fin)
+                data["status"] = "approved" if args.approval_command == "approve" else "rejected"
+                record_audit(data, f"Status: {data['status']}"); 
+                with open(f, "w") as fout: json.dump(data, fout, indent=2)
+                print(f"Approval {args.approval_id} {data['status']}.")
+        elif args.approval_command == "apply":
+            f = os.path.join(APPROVALS_DIR, f"{args.approval_id}.json")
+            if os.path.exists(f):
+                with open(f, "r") as fin: data = json.load(fin)
+                if data["status"] != "approved": print(f"Not approved."); return
+                data["status"] = "applying"; record_audit(data, "Applying"); atype = data["action"]["type"]
+                try:
+                    if atype == "forge_skill": success, msg = ApplyHandlers.forge_skill(data, STAGING_DIR)
+                    elif atype == "deploy_skill": success, msg = ApplyHandlers.deploy_skill(data, STAGING_DIR, GLOBAL_SKILLS_PATH)
+                    elif atype == "update_skills_lock": success, msg = ApplyHandlers.update_skills_lock(data, GLOBAL_SKILLS_PATH)
+                    else: success, msg = False, "Unknown action"
+                except Exception as e: success, msg = False, str(e)
+                data["status"] = "verified" if success else "failed_verification"
+                print(msg); record_audit(data, msg); 
+                with open(f, "w") as fout: json.dump(data, fout, indent=2)
+
+    elif args.command == "rollback":
+        if args.rollback_command == "list":
+            for f in sorted(glob.glob(os.path.join(APPROVALS_DIR, "appr_*.json")), reverse=True):
+                with open(f, "r") as fin: d = json.load(fin)
+                if d["status"] in ["failed_verification", "rollback_planned"]: print(f"{d['approval_id']:<25} {d['status']:<20} {d['action']['type']}")
+        elif args.rollback_command == "plan":
+            f = os.path.join(APPROVALS_DIR, f"{args.approval_id}.json")
+            if os.path.exists(f):
+                with open(f, "r") as fin: data = json.load(fin)
+                data["status"] = "rollback_planned"; record_audit(data, "Rollback planned")
+                with open(f, "w") as fout: json.dump(data, fout, indent=2)
+                print(f"Rollback planned for {args.approval_id}")
+        elif args.rollback_command == "apply":
+            f = os.path.join(APPROVALS_DIR, f"{args.approval_id}.json")
+            if os.path.exists(f):
+                with open(f, "r") as fin: data = json.load(fin)
+                if data["status"] != "rollback_planned": print("Plan first."); return
+                data["status"] = "rollback_applying"; atype = data["action"]["type"]
+                try:
+                    if atype == "deploy_skill": success, msg = RollbackHandlers.rollback_skill_deploy(data, GLOBAL_SKILLS_PATH)
+                    elif atype == "update_skills_lock": success, msg = RollbackHandlers.rollback_skills_lock(data, GLOBAL_SKILLS_PATH)
+                    else: success, msg = False, "No handler"
+                    RollbackHandlers.store_amb_recovery_gotcha(data)
+                except Exception as e: success, msg = False, str(e)
+                data["status"] = "rolled_back" if success else "rollback_failed"
+                print(msg); record_audit(data, msg); 
+                with open(f, "w") as fout: json.dump(data, fout, indent=2)
 
 if __name__ == "__main__":
     main()

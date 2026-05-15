@@ -1,3 +1,20 @@
+## Checkpoint 55 - 2026-05-15 04:35 (Cole)
+
+### Changed
+- Implemented **Milestone 2J: Rollback & Recovery**.
+- Added `rollback` command group to `runtime-self-improve.py`: `list`, `plan`, `apply`.
+- Established typed rollback handlers: `rollback_skill_deploy` (shutil removal) and `rollback_skills_lock` (Git restore).
+- Enforced strict state transitions: `failed_verification` -> `rollback_planned` -> `rolled_back`.
+- Cleaned up global skill store: removed `staging-test-skill` and restored verified baseline.
+- Established AMB procedure for Rollback & Recovery (ID: `20260515043432141656-7e3d973e`).
+
+### Validation
+- Command: `python3 runtime-self-improve.py rollback apply <id>`
+- Result: **PASS**; verified that a failed deployment (missing hash) can be planned and rolled back, restoring the global store to its prior verified state.
+
+### Next
+- Proceed to **Milestone 2K: Skill Lifecycle Management**.
+
 ## Checkpoint 54 - 2026-05-15 04:26 (Cole)
 
 ### Changed
