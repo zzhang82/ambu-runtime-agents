@@ -23,6 +23,7 @@ from runtime_agents import runbooks as runbooks_mod
 from runtime_agents import schedules as schedules_mod
 from runtime_agents import state as state_mod
 from runtime_agents import tools_registry as tools_registry_mod
+from runtime_agents.events import EventCapture
 from runtime_agents.models import TASK_STATUSES as MODEL_TASK_STATUSES
 
 try:
@@ -665,7 +666,19 @@ def iterate_round_summaries(run_dir):
     return summaries
 
 
-def execute_agent_attempts(agent_cfg, tool, model, prompt, autonomy, fallback, timeout, cwd=None):
+def parse_tools_from_stdout(stdout):
+    if not stdout:
+        return []
+    # Match mcp__ prefix
+    mcp_tools = re.findall(r"mcp__([\w_]+)", stdout)
+    # Match tool_use: prefix (OpenCode style)
+    opencode_tools = re.findall(r"tool_use: ([\w_]+)", stdout)
+    # Match Calling ... (general style)
+    calling_tools = re.findall(r"Calling ([\w_]+)", stdout)
+    return sorted(list(set(mcp_tools + opencode_tools + calling_tools)))
+
+
+def execute_agent_attempts(agent_cfg, tool, model, prompt, autonomy, fallback, timeout, cwd=None, event_capture=None):
     attempts = []
     profiles = [None]
     if fallback:
@@ -680,8 +693,16 @@ def execute_agent_attempts(agent_cfg, tool, model, prompt, autonomy, fallback, t
             "model": attempt_model,
             "command": cmd[:],
         }
+        if event_capture:
+            event_capture.record_command(" ".join(cmd))
+            if tool:
+                event_capture.record_tool(tool)
         try:
             result = run_command(cmd, cwd or Path.cwd(), timeout)
+            if event_capture:
+                sub_tools = parse_tools_from_stdout(result.get("stdout", ""))
+                for st in sub_tools:
+                    event_capture.record_tool(st)
         except subprocess.TimeoutExpired as exc:
             result = {
                 "started_at": now_iso(),
@@ -1233,6 +1254,12 @@ def run_task(args):
         reason="no_memory_flag" if getattr(args, "no_memory", False) else ("non_workspace_task" if not getattr(args, "workspace", None) else None),
     )
     effective_prompt, memory_recall = apply_memory_prelude(prompt, memory_namespace, memory_opts.get("query") or prompt, memory_opts)
+    
+    event_capture = EventCapture(runtime="runtime-agents", workspace=getattr(args, "workspace", None))
+    event_capture.set_goal(prompt)
+    if memory_recall and memory_recall.get("injected"):
+        event_capture.record_memory_op("recall", memory_namespace, memory_opts.get("query") or prompt, len(memory_recall.get("records", [])))
+
     if getattr(args, "memory_preview", False):
         print_json({
             "would_run": False,
@@ -1291,6 +1318,7 @@ def run_task(args):
     }
     write_json(run_dir / "metadata.json", base_meta)
     append_task(base_meta)
+    event_capture.set_run_id(tid)
 
     if unapproved:
         result = {
@@ -1303,9 +1331,10 @@ def run_task(args):
         }
         write_json(run_dir / "result.json", result)
         print_json(result)
+        event_capture.finish(outcome="blocked", summary="Task blocked by MVP policy gate")
         return 2
 
-    attempts, final = execute_agent_attempts(agent_cfg, tool, model, effective_prompt, autonomy, args.fallback, args.timeout, cwd=run_cwd)
+    attempts, final = execute_agent_attempts(agent_cfg, tool, model, effective_prompt, autonomy, args.fallback, args.timeout, cwd=run_cwd, event_capture=event_capture)
     for attempt in attempts:
         index = attempt["attempt"]
         result = attempt
@@ -1321,6 +1350,7 @@ def run_task(args):
     result_summary = {"task_id": tid, "status": status, "returncode": final["returncode"], "attempts": attempts}
     write_json(run_dir / "result.json", result_summary)
     append_task(meta)
+    event_capture.finish(outcome=status, summary=f"Task finished with {status}")
     print_json({"task_id": tid, "status": status, "model": final["model"], "run_dir": str(run_dir)})
     return final["returncode"]
 
@@ -1351,6 +1381,12 @@ def iterate_cmd(args):
         reason="no_memory_flag" if getattr(args, "no_memory", False) else ("non_workspace_task" if not getattr(args, "workspace", None) else None),
     )
     effective_goal, memory_recall = apply_memory_prelude(goal, memory_namespace, memory_opts.get("query") or goal, memory_opts)
+    
+    event_capture = EventCapture(runtime="runtime-agents", workspace=getattr(args, "workspace", None))
+    event_capture.set_goal(goal)
+    if memory_recall and memory_recall.get("injected"):
+        event_capture.record_memory_op("recall", memory_namespace, memory_opts.get("query") or goal, len(memory_recall.get("records", [])))
+
     if getattr(args, "memory_preview", False):
         print_json({
             "would_run": False,
@@ -1466,11 +1502,13 @@ def iterate_cmd(args):
     }
     write_json(run_dir / "metadata.json", base_meta)
     append_task(base_meta)
+    event_capture.set_run_id(tid)
 
     round_results = []
     initial_dir = rounds_dir / "0"
     initial_dir.mkdir(parents=True, exist_ok=True)
     try:
+        event_capture.record_command(args.check)
         check_result = run_shell_check(args.check, run_cwd, args.check_timeout)
     except subprocess.TimeoutExpired as exc:
         check_result = {"started_at": now_iso(), "ended_at": now_iso(), "returncode": 124, "stdout": exc.stdout or "", "stderr": f"check timeout after {args.check_timeout}s"}
@@ -1486,6 +1524,7 @@ def iterate_cmd(args):
         write_json(run_dir / "metadata.json", meta)
         write_json(run_dir / "result.json", result)
         append_task(meta)
+        event_capture.finish(outcome="completed", summary="Check passed immediately")
         print_json(result)
         return 0
 
@@ -1517,7 +1556,7 @@ Previous check stderr:
 Shared tool guidance: if your runtime exposes Agent Memory Bridge, Context7, or Playwright tools, use them as evidence lanes when relevant. Prefer Agent Memory Bridge for project/domain memory, Context7 for current library docs, and Playwright for browser/UI validation. Do not assume those tools exist; proceed with local files and commands when unavailable.
 """.strip()
         (rd / "prompt.txt").write_text(prompt + "\n", encoding="utf-8")
-        attempts, final_attempt = execute_agent_attempts(agent_cfg, tool, model, prompt, autonomy, args.fallback, args.timeout, cwd=run_cwd)
+        attempts, final_attempt = execute_agent_attempts(agent_cfg, tool, model, prompt, autonomy, args.fallback, args.timeout, cwd=run_cwd, event_capture=event_capture)
         for attempt in attempts:
             idx = attempt["attempt"]
             (rd / f"attempt-{idx}-stdout.log").write_text(attempt["stdout"], encoding="utf-8")
@@ -1530,6 +1569,7 @@ Shared tool guidance: if your runtime exposes Agent Memory Bridge, Context7, or 
             round_results.append(round_result)
             break
         try:
+            event_capture.record_command(args.check)
             last_check = run_shell_check(args.check, run_cwd, args.check_timeout)
         except subprocess.TimeoutExpired as exc:
             last_check = {"started_at": now_iso(), "ended_at": now_iso(), "returncode": 124, "stdout": exc.stdout or "", "stderr": f"check timeout after {args.check_timeout}s"}
@@ -1554,6 +1594,7 @@ Shared tool guidance: if your runtime exposes Agent Memory Bridge, Context7, or 
     write_json(run_dir / "metadata.json", meta)
     write_json(run_dir / "result.json", result)
     append_task(meta)
+    event_capture.finish(outcome=final_status, summary=f"Iterate finished with {final_status} after {rounds_count} rounds")
     print_json(result)
     return 0 if final_check_passed else 1
 

@@ -44,3 +44,6 @@ AGENTD_PID = STATE_DIR / "agentd.pid"
 AGENTD_LOG = STATE_DIR / "agentd.log"
 TELEGRAM_OFFSET = STATE_DIR / "telegram.offset"
 TELEGRAM_LOG = STATE_DIR / "telegram.log"
+
+SELF_IMPROVE_HOME = Path.home() / ".runtime-agents"
+EVENTS_JSONL = SELF_IMPROVE_HOME / "events" / "agent-runs.jsonl"

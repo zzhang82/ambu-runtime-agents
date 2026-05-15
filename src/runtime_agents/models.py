@@ -118,6 +118,50 @@ class Action:
 
 
 @dataclass
+class AgentRunEvent:
+    schema_version: str = "0.1"
+    runtime: str = "runtime-agents"
+    session_id: str | None = None
+    run_id: str | None = None
+    timestamp_start: str | None = None
+    timestamp_end: str | None = None
+    workspace: str | None = None
+    user_goal: str | None = None
+    outcome: str | None = None
+    summary: str | None = None
+    tools_used: list[str] = field(default_factory=list)
+    tool_sequence: list[str] = field(default_factory=list)
+    files_touched: list[str] = field(default_factory=list)
+    commands_run: list[str] = field(default_factory=list)
+    skills_invoked: list[str] = field(default_factory=list)
+    memory_operations: list[dict[str, Any]] = field(default_factory=list)
+    friction_points: list[str] = field(default_factory=list)
+    artifacts_created: list[str] = field(default_factory=list)
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "schema_version": self.schema_version,
+            "runtime": self.runtime,
+            "session_id": self.session_id,
+            "run_id": self.run_id,
+            "timestamp_start": self.timestamp_start,
+            "timestamp_end": self.timestamp_end,
+            "workspace": self.workspace,
+            "user_goal": self.user_goal,
+            "outcome": self.outcome,
+            "summary": self.summary,
+            "tools_used": self.tools_used,
+            "tool_sequence": self.tool_sequence,
+            "files_touched": self.files_touched,
+            "commands_run": self.commands_run,
+            "skills_invoked": self.skills_invoked,
+            "memory_operations": self.memory_operations,
+            "friction_points": self.friction_points,
+            "artifacts_created": self.artifacts_created,
+        }
+
+
+@dataclass
 class ActionResult:
     status: str
     action_type: str

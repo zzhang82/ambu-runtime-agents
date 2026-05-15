@@ -2,6 +2,7 @@
 
 ## Open todo
 - `runtime-agents v1.5.1` is closed. Pause feature work and start real dogfooding before planning v1.6.
+- **Done**: Improved `runtime-agents` native emitter to capture `tools_used` and `tool_sequence` (Milestone 2C).
 - Use the current system in real workflows first: `runtime-dev` profile, guardrail evals, profile run dry-runs, profile plans, and Telegram status/show/logs paths.
 - Focus the next session on burn-in questions:
   - Are profiles understandable in real use?
