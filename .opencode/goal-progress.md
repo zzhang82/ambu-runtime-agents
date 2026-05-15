@@ -1,3 +1,23 @@
+## Checkpoint 60 - 2026-05-15 05:19 (Cole)
+
+### Changed
+- Implemented **Milestone 2O: Remote Backup / NAS Integration**.
+- Added `backup` command group to `runtime-self-improve.py`: `create`, `verify`, `status`, `restore-plan`.
+- Established durable NAS backup at `/mnt/r/LLMData/SkillsBackUp/`.
+- Implementation creates both:
+    1.  **Compressed Snapshots**: `tar.gz` archives with SHA-256 checksums.
+    2.  **Latest Mirror**: `rsync` replica for fast local recovery (optimized for NAS/SMB).
+- Refined `scheduler run-once` to include unified ingestion and skill verification.
+- Established AMB procedure for NAS Backup (ID: `20260515051847584669-c62ecd42`).
+
+### Validation
+- Command: `python3 runtime-self-improve.py backup create --target nas && python3 runtime-self-improve.py backup verify`
+- Result: **PASS**; 6 snapshots created, mirror verified on the DS920 NAS, and checksum integrity confirmed.
+
+### Next
+- System loop is now fully operational across Sensing, Recommendation, Approval, Apply, Verify, and Backup.
+- Future work: Milestone 2P (Agent-to-Agent Skill Exchange).
+
 ## Checkpoint 59 - 2026-05-15 04:50 (Cole)
 
 ### Changed
