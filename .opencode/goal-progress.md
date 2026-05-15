@@ -1,3 +1,35 @@
+## Checkpoint 63 - 2026-05-15 19:45 (Cole)
+
+### Changed
+- Registered **windows-safe-maintenance-doctor** skill in global registry.
+- Updated `skills.registry.json` and `skills.lock.json`.
+- Moved skill portable files to `~/.config/opencode/skills/windows-safe-maintenance-doctor/`.
+- Performed hygiene audit on `runtime-agents` repo.
+
+### Validation
+- Skill files exist in global directory.
+- Registry entries are valid and match schema.
+- Hygiene report generated.
+
+### Next
+- **Milestone 2P: Restore Drill**.
+
+## Checkpoint 62 - 2026-05-15 05:35 (Cole)
+
+### Changed
+- Established **SkillOps Mentor** hierarchy.
+- Created `skillops-mentor` skill as the universal top-level router for all local skills.
+- Implemented `read_skill_registry.py` script for lightweight, registry-aware routing.
+- Re-scoped `ljg-skill-mentor` as a specialized router for LJG-style skills.
+- Registered `skillops-mentor` in `skills.registry.json` with appropriate tags.
+
+### Validation
+- Script `read_skill_registry.py` successfully summarizes the 34 installed skills.
+- `SKILL.md` for `skillops-mentor` and `ljg-skill-mentor` correctly reflect the new hierarchy.
+
+### Next
+- **Milestone 2P: Restore Drill**.
+
 ## Checkpoint 61 - 2026-05-15 05:25 (Cole)
 
 ### Changed
