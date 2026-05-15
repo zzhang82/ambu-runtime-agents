@@ -1,3 +1,30 @@
+## Checkpoint 61 - 2026-05-15 05:25 (Cole)
+
+### Changed
+- Completed **Milestone 2O: Remote Backup / NAS Integration**.
+- Set **Milestone 2P: Restore Drill** as the next objective.
+- Documented the handoff in AMB.
+
+### Handoff
+**[[Handoff]] SkillOps Milestone 2O complete**
+
+SkillOps is now fully operational and recoverable:
+- multi-runtime high-fidelity sensing
+- scheduler observe/recommend loop
+- approval-gated mutation
+- controlled apply pipeline
+- rollback/recovery
+- lifecycle registry
+- quality evals
+- NAS backup with checksums and latest mirror
+
+**Next recommended milestone:**
+2P Restore Drill against a temporary directory.
+Do not add new automation until restore drill passes.
+
+### Stop reason
+- Milestone 2O complete. Pausing as per user recommendation to prepare for the restore drill.
+
 ## Checkpoint 60 - 2026-05-15 05:19 (Cole)
 
 ### Changed

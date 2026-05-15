@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.6.0 - 2026-05-15
+
+### Added
+- Added runtime-agnostic self-improvement pipeline based on `AgentRunEvent`.
+- Added high-fidelity ingestion for opencode, Claude/CCR, Codex, Gemini, and runtime-agents.
+- Added `runtime-self-improve` commands for ingest, scan, suggest, recommend, schedule, approvals, rollback, lifecycle, evals, and backup.
+- Added SkillOps governance with `skills.lock.json`, `skills.registry.json`, and `skills.evals.json`.
+- Added approval-gated controlled apply pipeline.
+- Added rollback and recovery support for failed mutations.
+- Added NAS backup support for the global skill store.
+
+### Safety
+- Mutating actions require explicit approval.
+- Scheduler runs in observe/recommend mode.
+- Raw transcripts, caches, tool-output, and local databases are excluded from backups.
+
 ## 1.5.1
 
 - Added queue lifecycle cleanup commands to `agentctl` to allow cancelling stale queued/running validation artifacts through an append-only, auditable CLI path.

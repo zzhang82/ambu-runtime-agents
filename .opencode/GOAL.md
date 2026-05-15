@@ -1,22 +1,23 @@
-# Goal: runtime-agents Self-Improvement Milestone 1B
+# Goal: SkillOps Milestone 2P - Restore Drill
 
 ## Objective
-Implement the sensing and scanning layer of the self-improvement pipeline. Differentiate already-forged skills from candidates, upgrade history ingestion with tool-level detail, and focus on sensing reliability without auto-forging.
+Prove that the NAS backup system can successfully restore the SkillOps environment into a temporary directory and pass full integrity verification, ensuring disaster recovery reliability.
 
-## Milestone 1B Requirements
-1. **`runtime-self-improve scan`**:
-    - Load events from `~/.runtime-agents/events/agent-runs.jsonl`.
-    - Cluster `user_goal` patterns.
-    - Match patterns against currently installed skills (e.g. `ljg-skill-mentor`, `repo-workflow-cartographer`).
-    - Identify P0 candidates (patterns with 3+ occurrences not covered by existing skills).
-2. **Adapter Upgrade**:
-    - Improve `ClaudeCCRAdapter` to ingest MCP/tool-level data if possible.
-    - Add `tools_used` or `mcp_ops` to the `AgentRunEvent` schema.
-3. **Validation**:
-    - Verify scanning accuracy against the ingested history.
+## Milestone 2P Requirements
+1. **Extraction Test**: Extract the latest snapshot (`tar.gz`) from the NAS to `/tmp/skillops-restore-test`.
+2. **Registry Integrity**: Verify that `skills.lock.json`, `skills.registry.json`, and `skills.evals.json` are present and readable.
+3. **Skill Completeness**: Verify that core system skills (e.g., `skill-creator`, `skill-installer`) and project skills are correctly extracted.
+4. **Verification Support**: Ensure the `runtime-self-improve.py` verifier can validate a custom path (e.g., the restored temp directory) against its internal lockfile.
+5. **Mirror Audit**: Compare the restored content with the `latest/` rsync mirror on the NAS to ensure parity.
+6. **Zero-Side-Effect Safety**: Confirm the restore process does not overwrite or modify the live global skill store at `~/.config/opencode/skills/`.
 
 ## Success Conditions
-- `runtime-self-improve scan` reports existing skills correctly.
-- `runtime-self-improve scan` identifies new candidates with frequency counts.
-- `ingest` now captures tool-level evidence when available.
-- No auto-forging of skills (sensing only).
+- Latest snapshot extracts without errors.
+- All governance files (`lock`, `registry`, `evals`) are verified.
+- The `runtime-self-improve.py` verifier returns a "PASS" for the restored directory.
+- No accidental mutation of the production environment occurs.
+
+## Constraints
+- Do not add new features until the restore drill passes.
+- Use `/tmp/skillops-restore-test` for the target path.
+- Reference NAS path: `/mnt/r/LLMData/SkillsBackUp/`.

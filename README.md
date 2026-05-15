@@ -39,6 +39,62 @@ v1.5.0 adds metadata-derived context-aware guardrails on top of the profile and 
 
 `assistant-exec` now routes through `runtime_agents.actions`, which centralizes typed action execution while preserving the existing JSON contract.
 
+## Self-Improvement / SkillOps Layer
+
+`runtime-agents` includes a local-first self-improvement system for observing agent runs, detecting repeated workflows, and safely turning them into reusable skills.
+
+The system is event-driven, not a background listener by default. Runtimes such as opencode, Claude/CCR, Codex, Gemini, and runtime-agents emit or expose logs. These are normalized into `AgentRunEvent` records and stored locally.
+
+Core flow:
+
+```text
+runtime logs / events
+  → AgentRunEvent
+  → scan
+  → suggest
+  → approval
+  → controlled apply
+  → verification
+  → rollback if needed
+  → lifecycle registry
+  → backup
+```
+
+Key guarantees:
+- No raw transcript dumping by default.
+- No automatic skill forging.
+- No automatic deployment.
+- No automatic lockfile update.
+- Mutating actions require approval.
+- Skill store changes are verified against `skills.lock.json`.
+- Rollback uses Git and lockfile state as file truth.
+
+## CLI examples
+
+```bash
+python3 self_improvement/runtime-self-improve.py ingest --runtime opencode --recent 20
+python3 self_improvement/runtime-self-improve.py scan
+python3 self_improvement/runtime-self-improve.py suggest
+python3 self_improvement/runtime-self-improve.py schedule check
+python3 self_improvement/runtime-self-improve.py skills verify
+python3 self_improvement/runtime-self-improve.py backup status
+```
+
+### Event model
+
+The normalized event format is `AgentRunEvent`. It captures structural metadata such as:
+- runtime
+- session ID
+- user goal
+- tool sequence
+- commands run
+- files touched
+- memory operations
+- outcome
+- friction points
+
+It does not require storing full transcripts.
+
 ## Development workflow
 
 ```bash
