@@ -21,6 +21,7 @@ STAGING_DIR = os.path.expanduser("~/.runtime-agents/staging/")
 APPROVALS_DIR = os.path.expanduser("~/.runtime-agents/approvals/")
 SCHEDULER_STATE_PATH = os.path.expanduser("~/.runtime-agents/scheduler/state.json")
 EVENTS_PATH = os.path.expanduser("~/.runtime-agents/events/agent-runs.jsonl")
+REGISTRY_PATH = os.path.join(GLOBAL_SKILLS_PATH, "skills.registry.json")
 
 # --- UTILS ---
 
@@ -29,7 +30,7 @@ def get_dir_hash(path):
     hash_sha256 = hashlib.sha256()
     for root, dirs, files in os.walk(path):
         for names in sorted(files):
-            if names.startswith(".git") or names == "skills.lock.json": continue
+            if names.startswith(".git") or names == "skills.lock.json" or names == "skills.registry.json": continue
             filepath = os.path.join(root, names)
             with open(filepath, "rb") as f:
                 for chunk in iter(lambda: f.read(4096), b""): hash_sha256.update(chunk)
@@ -54,6 +55,37 @@ def get_skill_hash(skill_path):
 def record_audit(data, message):
     if "audit_log" not in data: data["audit_log"] = []
     data["audit_log"].append({"timestamp": datetime.now().isoformat() + "Z", "message": message})
+
+# --- REGISTRY MANAGER ---
+
+class RegistryManager:
+    @staticmethod
+    def load():
+        if os.path.exists(REGISTRY_PATH):
+            with open(REGISTRY_PATH, 'r') as f:
+                return json.load(f)
+        return {"schema_version": "0.1", "skills": {}}
+
+    @staticmethod
+    def save(data):
+        with open(REGISTRY_PATH, 'w') as f:
+            json.dump(data, f, indent=2)
+
+    @staticmethod
+    def set_state(skill_name, state, metadata=None):
+        data = RegistryManager.load()
+        if skill_name not in data["skills"]:
+            data["skills"][skill_name] = {
+                "version": "0.1.0",
+                "last_verified_at": None,
+                "supported_runtimes": ["opencode", "claude", "codex", "gemini"]
+            }
+        data["skills"][skill_name]["state"] = state
+        if metadata:
+            data["skills"][skill_name].update(metadata)
+        if state in ["verified", "locked"]:
+            data["skills"][skill_name]["last_verified_at"] = datetime.now().isoformat() + "Z"
+        RegistryManager.save(data)
 
 # --- ADAPTERS ---
 
@@ -276,6 +308,7 @@ class ApplyHandlers:
         os.makedirs(skill_dir, exist_ok=True)
         with open(os.path.join(skill_dir, "SKILL.md"), "w") as f:
             f.write(f"---\nname: {target}\ndescription: forged via {approval['approval_id']}\n---\n")
+        RegistryManager.set_state(target, "staged")
         return True, f"Forged skill {target} in staging: {skill_dir}"
     @staticmethod
     def deploy_skill(approval, staging_dir, global_store):
@@ -284,12 +317,18 @@ class ApplyHandlers:
         if not os.path.exists(src): return False, f"Source {src} not found in staging."
         if os.path.exists(dst): shutil.rmtree(dst)
         shutil.copytree(src, dst)
+        RegistryManager.set_state(target, "deployed")
         subprocess.run(["python3", sys.argv[0], "skills", "verify", "--all"], check=True)
+        RegistryManager.set_state(target, "verified")
         return True, f"Deployed skill {target} to {dst}"
     @staticmethod
     def update_skills_lock(approval, global_store):
         subprocess.run(["python3", sys.argv[0], "skills", "lock", "--path", global_store], check=True)
-        return True, "Updated skills.lock.json"
+        reg = RegistryManager.load()
+        for sname, sdata in reg["skills"].items():
+            if sdata["state"] == "verified":
+                RegistryManager.set_state(sname, "locked")
+        return True, "Updated skills.lock.json and promoted verified skills to locked"
 
 class RollbackHandlers:
     @staticmethod
@@ -298,6 +337,7 @@ class RollbackHandlers:
         target_path = os.path.join(global_store, target)
         if os.path.exists(target_path):
             shutil.rmtree(target_path)
+            RegistryManager.set_state(target, "rolled_back")
             return True, f"Removed deployed skill {target}"
         return False, f"Skill {target} not found"
     @staticmethod
@@ -314,19 +354,30 @@ def main():
     parser = argparse.ArgumentParser(description="Runtime Self-Improvement CLI")
     subparsers = parser.add_subparsers(dest="command")
 
-    ingest_p = subparsers.add_parser("ingest")
-    ingest_p.add_argument("--runtime", choices=["claude", "opencode", "runtime-agents", "codex", "gemini"], required=True)
-    ingest_p.add_argument("--recent", type=int, default=50)
+    ingest_parser = subparsers.add_parser("ingest")
+    ingest_parser.add_argument("--runtime", choices=["claude", "opencode", "runtime-agents", "codex", "gemini"], required=True)
+    ingest_parser.add_argument("--recent", type=int, default=50)
 
     subparsers.add_parser("scan")
     subparsers.add_parser("suggest")
 
     skills_p = subparsers.add_parser("skills")
-    skills_s = skills_p.add_subparsers(dest="skill_command")
-    skills_s.add_parser("status")
-    skills_s.add_parser("lock").add_argument("--path")
-    skills_v = skills_s.add_parser("verify")
+    skills_sub = skills_p.add_subparsers(dest="skill_command")
+    skills_sub.add_parser("status")
+    skills_sub.add_parser("lock").add_argument("--path")
+    skills_v = skills_sub.add_parser("verify")
     skills_v.add_argument("--all", action="store_true"); skills_v.add_argument("--path")
+
+    # Lifecycle commands (Milestone 2K)
+    lifecycle_p = skills_sub.add_parser("lifecycle")
+    lifecycle_sub = lifecycle_p.add_subparsers(dest="lifecycle_command")
+    lifecycle_sub.add_parser("list")
+    lifecycle_show = lifecycle_sub.add_parser("show"); lifecycle_show.add_argument("skill")
+    lifecycle_set = lifecycle_sub.add_parser("set-state"); lifecycle_set.add_argument("skill"); lifecycle_set.add_argument("state")
+    lifecycle_dep = lifecycle_sub.add_parser("deprecate"); lifecycle_dep.add_argument("skill")
+    lifecycle_arc = lifecycle_sub.add_parser("archive"); lifecycle_arc.add_argument("skill")
+    lifecycle_sub.add_parser("verify")
+    lifecycle_sub.add_parser("init-all")
 
     hooks_p = subparsers.add_parser("hooks")
     hooks_s = hooks_p.add_subparsers(dest="hook_command")
@@ -364,41 +415,60 @@ def main():
 
     args = parser.parse_args()
 
-    if args.command == "ingest":
-        events = []
-        if args.runtime == "claude": events = ClaudeCCRAdapter("~/.claude/history.jsonl").normalize(args.recent)
-        elif args.runtime == "opencode": events = OpencodeAdapter().normalize(args.recent)
-        elif args.runtime == "runtime-agents": events = RuntimeAgentsAdapter("~/.local/share/runtime-agents").normalize(args.recent)
-        elif args.runtime == "codex": events = CodexAdapter().normalize(args.recent)
-        elif args.runtime == "gemini": events = GeminiAdapter().normalize(args.recent)
-        if events:
-            os.makedirs(os.path.dirname(EVENTS_PATH), exist_ok=True)
-            with open(EVENTS_PATH, 'a', encoding='utf-8') as f:
-                for ev in events: f.write(json.dumps(ev) + "\n")
-            print(f"Successfully ingested {len(events)} runs from {args.runtime}")
-
-    elif args.command == "skills":
-        skills_path = os.path.expanduser(args.path or GLOBAL_SKILLS_PATH); lock_file = os.path.join(skills_path, "skills.lock.json")
-        if args.skill_command == "lock":
-            skills = {}
-            for d in os.listdir(skills_path):
-                p = os.path.join(skills_path, d)
-                if os.path.isdir(p) and not d.startswith("."):
-                    h = get_skill_hash(p)
-                    if h: skills[d] = {"hash": h, "last_locked": datetime.now().isoformat()}
-            with open(lock_file, "w") as f: json.dump({"schema_version": "0.1", "skills": skills}, f, indent=2)
-            print("Locked.")
-        elif args.skill_command == "verify":
-            if not os.path.exists(lock_file): return
-            with open(lock_file, "r") as f: lock_data = json.load(f); locked_skills = lock_data.get("skills", {})
-            current_skills = [d for d in os.listdir(skills_path) if os.path.isdir(os.path.join(skills_path, d)) and not d.startswith(".")]
-            errors = 0
-            for s in current_skills:
-                p = os.path.join(skills_path, s); h = get_skill_hash(p)
-                if s not in locked_skills or locked_skills[s]["hash"] != h:
-                    print(f"[!] {s} DRIFTED"); errors += 1
-                else: print(f"[+] {s} VERIFIED")
-            if errors > 0: sys.exit(1)
+    if args.command == "skills":
+        if args.skill_command == "lifecycle":
+            reg_data = RegistryManager.load()
+            if args.lifecycle_command == "init-all":
+                current_skills = [d for d in os.listdir(GLOBAL_SKILLS_PATH) if os.path.isdir(os.path.join(GLOBAL_SKILLS_PATH, d)) and not d.startswith(".")]
+                for s in current_skills:
+                    if s not in reg_data["skills"]: RegistryManager.set_state(s, "locked")
+                print(f"Initialized registry for {len(current_skills)} skills.")
+            elif args.lifecycle_command == "list":
+                print(f"{'Skill':<30} {'State':<15} {'Last Verified'}")
+                print("-" * 80)
+                for sname, sdata in sorted(reg_data["skills"].items()):
+                    print(f"{sname:<30} {sdata['state']:<15} {sdata.get('last_verified_at', 'never')}")
+            elif args.lifecycle_command == "show":
+                s = reg_data["skills"].get(args.skill)
+                if s: print(json.dumps(s, indent=2))
+                else: print("Skill not found.")
+            elif args.lifecycle_command == "set-state":
+                RegistryManager.set_state(args.skill, args.state)
+                print(f"Set {args.skill} to {args.state}.")
+            elif args.lifecycle_command == "verify":
+                lock_file = os.path.join(GLOBAL_SKILLS_PATH, "skills.lock.json")
+                with open(lock_file, "r") as f: lock_data = json.load(f); locked_skills = lock_data.get("skills", {})
+                current_skills = [d for d in os.listdir(GLOBAL_SKILLS_PATH) if os.path.isdir(os.path.join(GLOBAL_SKILLS_PATH, d)) and not d.startswith(".")]
+                print("Verifying Skill Lifecycle Consistency...")
+                errors = 0
+                for s in current_skills:
+                    sdata = reg_data["skills"].get(s)
+                    if not sdata: print(f"[!] {s:<30} MISSING from registry"); errors += 1
+                    elif sdata["state"] == "locked" and s not in locked_skills: print(f"[!] {s:<30} Marked LOCKED but not in lockfile"); errors += 1
+                    else: print(f"[+] {s:<30} OK ({sdata.get('state')})")
+                if errors == 0: print("\nLifecycle verification PASSED.")
+                else: print(f"\nLifecycle verification FAILED with {errors} issues."); sys.exit(1)
+        else:
+            skills_path = os.path.expanduser(args.path or GLOBAL_SKILLS_PATH); lock_file = os.path.join(skills_path, "skills.lock.json")
+            if args.skill_command == "lock":
+                skills = {}
+                for d in os.listdir(skills_path):
+                    p = os.path.join(skills_path, d)
+                    if os.path.isdir(p) and not d.startswith("."):
+                        h = get_skill_hash(p); 
+                        if h: skills[d] = {"hash": h, "last_locked": datetime.now().isoformat()}
+                with open(lock_file, "w") as f: json.dump({"schema_version": "0.1", "skills": skills}, f, indent=2)
+                print("Locked.")
+            elif args.skill_command == "verify":
+                if not os.path.exists(lock_file): return
+                with open(lock_file, "r") as f: lock_data = json.load(f); locked_skills = lock_data.get("skills", {})
+                current_skills = [d for d in os.listdir(skills_path) if os.path.isdir(os.path.join(skills_path, d)) and not d.startswith(".")]
+                errors = 0
+                for s in current_skills:
+                    p = os.path.join(skills_path, s); h = get_skill_hash(p)
+                    if s not in locked_skills or locked_skills[s]["hash"] != h: print(f"[!] {s} DRIFTED"); errors += 1
+                    else: print(f"[+] {s} VERIFIED")
+                if errors > 0: sys.exit(1)
 
     elif args.command == "approvals":
         os.makedirs(STAGING_DIR, exist_ok=True); os.makedirs(APPROVALS_DIR, exist_ok=True)
@@ -428,7 +498,7 @@ def main():
                     if atype == "forge_skill": success, msg = ApplyHandlers.forge_skill(data, STAGING_DIR)
                     elif atype == "deploy_skill": success, msg = ApplyHandlers.deploy_skill(data, STAGING_DIR, GLOBAL_SKILLS_PATH)
                     elif atype == "update_skills_lock": success, msg = ApplyHandlers.update_skills_lock(data, GLOBAL_SKILLS_PATH)
-                    else: success, msg = False, "Unknown action"
+                    else: success, msg = False, "Unknown"
                 except Exception as e: success, msg = False, str(e)
                 data["status"] = "verified" if success else "failed_verification"
                 print(msg); record_audit(data, msg); 
@@ -455,7 +525,7 @@ def main():
                 try:
                     if atype == "deploy_skill": success, msg = RollbackHandlers.rollback_skill_deploy(data, GLOBAL_SKILLS_PATH)
                     elif atype == "update_skills_lock": success, msg = RollbackHandlers.rollback_skills_lock(data, GLOBAL_SKILLS_PATH)
-                    else: success, msg = False, "No handler"
+                    else: success, msg = False, "Err"
                     RollbackHandlers.store_amb_recovery_gotcha(data)
                 except Exception as e: success, msg = False, str(e)
                 data["status"] = "rolled_back" if success else "rollback_failed"
