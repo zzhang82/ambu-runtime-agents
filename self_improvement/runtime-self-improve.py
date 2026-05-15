@@ -379,6 +379,14 @@ def main():
     lifecycle_sub.add_parser("verify")
     lifecycle_sub.add_parser("init-all")
 
+    # Eval commands (Milestone 2L)
+    eval_p = skills_sub.add_parser("eval")
+    eval_sub = eval_p.add_subparsers(dest="eval_command")
+    eval_sub.add_parser("list")
+    eval_run = eval_sub.add_parser("run"); eval_run.add_argument("skill", nargs="?", help="Skill to evaluate or --core")
+    eval_run.add_argument("--core", action="store_true", help="Run evals for all core skills")
+    eval_sub.add_parser("report")
+
     hooks_p = subparsers.add_parser("hooks")
     hooks_s = hooks_p.add_subparsers(dest="hook_command")
     hooks_s.add_parser("post-run").add_argument("--goal", required=True)
@@ -448,6 +456,96 @@ def main():
                     else: print(f"[+] {s:<30} OK ({sdata.get('state')})")
                 if errors == 0: print("\nLifecycle verification PASSED.")
                 else: print(f"\nLifecycle verification FAILED with {errors} issues."); sys.exit(1)
+        elif args.skill_command == "eval":
+            evals_file = os.path.join(GLOBAL_SKILLS_PATH, "skills.evals.json")
+            if not os.path.exists(evals_file): print("No evals file found."); return
+            with open(evals_file, "r") as f: evals_data = json.load(f)
+            
+            skills_to_eval = []
+            if args.core:
+                skills_to_eval = ["ljg-skill-mentor", "repo-workflow-cartographer", "ljg-style-skill-sculptor", "skill-deployment-verifier", "version-sync-sculptor", "session-bridge-assembler", "repo-architecture-sensor", "agent-hygiene-auditor"]
+            elif args.skill:
+                skills_to_eval = [args.skill]
+            
+            if args.eval_command == "list":
+                print(f"{'Skill':<30} {'Test Cases'}")
+                print("-" * 50)
+                for s, d in sorted(evals_data["skills"].items()):
+                    print(f"{s:<30} {len(d['cases'])}")
+            
+            elif args.eval_command == "run":
+                report = []
+                # Header mapping for flexibility
+                header_variants = {
+                    "One Cut": ["One Cut", "一刀", "核心动作"],
+                    "Redlines": ["Redlines", "红线", "红线管理"],
+                    "Output Mold": ["Output Mold", "输出模具", "输出形态", "模具"]
+                }
+                
+                for sname in skills_to_eval:
+                    skill_path = os.path.join(GLOBAL_SKILLS_PATH, sname)
+                    skill_md = os.path.join(skill_path, "SKILL.md")
+                    cases = evals_data["skills"].get(sname, {}).get("cases", [])
+                    
+                    if not os.path.exists(skill_md):
+                        print(f"[!] {sname:<30} SKILL.md missing. Skipping.")
+                        continue
+                    
+                    with open(skill_md, "r") as f: content = f.read()
+                    
+                    skill_results = {"skill": sname, "cases": []}
+                    for case in cases:
+                        case_result = {"name": case["name"], "status": "PASS", "details": []}
+                        checks = case.get("checks", {})
+                        
+                        # Section checks with variants
+                        for section in checks.get("must_include_sections", []):
+                            variants = header_variants.get(section, [section])
+                            found_section = False
+                            for v in variants:
+                                if f"# {v}" in content or f"## {v}" in content:
+                                    found_section = True; break
+                            if not found_section:
+                                case_result["status"] = "FAIL"
+                                case_result["details"].append(f"Missing section: {section}")
+                        
+                        # String checks
+                        for string in checks.get("must_include_strings", []):
+                            if string not in content:
+                                case_result["status"] = "FAIL"
+                                case_result["details"].append(f"Missing string: {string}")
+                        
+                        # Redline compliance (heuristic)
+                        redlines_variant = header_variants["Redlines"]
+                        redlines_content = ""
+                        for rv in redlines_variant:
+                            if f"## {rv}" in content:
+                                redlines_content = content.split(f"## {rv}")[1].split("##")[0]
+                                break
+                            elif f"# {rv}" in content:
+                                redlines_content = content.split(f"# {rv}")[1].split("#")[0]
+                                break
+                        
+                        for rule in checks.get("redline_compliance", []):
+                            if rule not in redlines_content.lower() and rule not in content.lower():
+                                case_result["status"] = "WARN"
+                                case_result["details"].append(f"Redline might be missing: {rule}")
+
+                        skill_results["cases"].append(case_result)
+                    report.append(skill_results)
+                
+                # Output Report
+                print("# Skill Quality Evaluation Report\n")
+                for sres in report:
+                    overall = "PASS" if all(c["status"] == "PASS" for c in sres["cases"]) else "FAIL"
+                    if overall == "PASS" and any(c["status"] == "WARN" for c in sres["cases"]): overall = "WARN"
+                    
+                    print(f"## {sres['skill']} - [{overall}]")
+                    for c in sres["cases"]:
+                        print(f"  - Case: {c['name']} [{c['status']}]")
+                        for d in c["details"]:
+                            print(f"    - {d}")
+                    print()
         else:
             skills_path = os.path.expanduser(args.path or GLOBAL_SKILLS_PATH); lock_file = os.path.join(skills_path, "skills.lock.json")
             if args.skill_command == "lock":
