@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.5.1
+
+- Added queue lifecycle cleanup commands to `agentctl` to allow cancelling stale queued/running validation artifacts through an append-only, auditable CLI path.
+- Synchronized profile and tool registry defaults to prevent configuration drift.
+
 ## 1.5.0
 
 - Added `runtime_agents.guardrails` with deterministic metadata-derived context evaluation and auditable `policy_decisions`.

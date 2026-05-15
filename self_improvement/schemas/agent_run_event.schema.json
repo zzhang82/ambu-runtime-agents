@@ -1,0 +1,29 @@
+{
+  "description": "Normalized agent run event for self-improvement triggers.",
+  "type": "object",
+  "properties": {
+    "schema_version": { "type": "string", "const": "0.1" },
+    "runtime": { "type": "string", "enum": ["opencode", "claude", "ccr", "codex", "gemini", "runtime-agents"] },
+    "session_id": { "type": "string" },
+    "run_id": { "type": "string" },
+    "timestamp_start": { "type": "string", "format": "date-time" },
+    "timestamp_end": { "type": "string", "format": "date-time" },
+    "workspace": { "type": "string" },
+    "user_goal": { "type": "string" },
+    "tool_sequence": { "type": "array", "items": { "type": "string" } },
+    "files_touched": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string" },
+          "action": { "type": "string" }
+        }
+      }
+    },
+    "outcome": { "type": "string", "enum": ["success", "failure", "aborted", "unknown"] },
+    "friction_points": { "type": "array", "items": { "type": "object" } },
+    "summary": { "type": "string" }
+  },
+  "required": ["schema_version", "runtime", "timestamp_start", "user_goal", "outcome"]
+}
