@@ -1,3 +1,20 @@
+## Checkpoint 59 - 2026-05-15 04:50 (Cole)
+
+### Changed
+- Implemented **Milestone 2N: Cross-Runtime Auto-Scheduling**.
+- Added `scheduler` command group to `runtime-self-improve.py`: `run-once`, `status`, `logs`.
+- Orchestrated unified ingestion from all 5 high-fidelity runtimes (Claude, opencode, runtime-agents, Codex, Gemini).
+- Integrated `run-once` with `schedule run` to update baseline hashes and timestamps automatically in observe-only mode.
+- Corrected `credit-card-kb` status: reverted from `deprecated` to `watched` to protect personal knowledge data.
+- Established AMB procedure for Cross-Runtime Auto-Scheduling (ID: `20260515045006053388-e69404f9`).
+
+### Validation
+- Command: `python3 runtime-self-improve.py scheduler run-once --workspace .`
+- Result: **PASS**; verified full cycle of ingestion, scheduling, and skill verification with detailed logging and state tracking.
+
+### Next
+- Proceed to **Milestone 2O: Remote Backup / Private Registry**.
+
 ## Checkpoint 58 - 2026-05-15 04:43 (Cole)
 
 ### Changed
