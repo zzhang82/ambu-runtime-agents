@@ -360,12 +360,23 @@ class ApplyHandlers:
     @staticmethod
     def forge_skill(approval, staging_dir):
         target = approval["action"]["target"]
+        description = approval["action"].get("description", f"forged via {approval['approval_id']}")
         skill_dir = os.path.join(staging_dir, target)
         os.makedirs(skill_dir, exist_ok=True)
+        os.makedirs(os.path.join(skill_dir, "agents"), exist_ok=True)
+        os.makedirs(os.path.join(skill_dir, "references"), exist_ok=True)
+        os.makedirs(os.path.join(skill_dir, "scripts"), exist_ok=True)
+        
+        # Write SKILL.md with proper frontmatter
         with open(os.path.join(skill_dir, "SKILL.md"), "w") as f:
-            f.write(f"---\nname: {target}\ndescription: forged via {approval['approval_id']}\n---\n")
+            f.write(f"---\nname: {target}\ndescription: {description}\n---\n\n# Skill: {target}\n\n## Goal\n[Describe the goal]\n\n## Instructions\n[Provide instructions]\n")
+        
+        # Write agents/openai.yaml for platform visibility
+        with open(os.path.join(skill_dir, "agents", "openai.yaml"), "w") as f:
+            f.write(f"name: {target}\ndisplay_name: {target.replace('-', ' ').title()}\ndescription: {description}\n")
+            
         RegistryManager.set_state(target, "staged")
-        return True, f"Forged skill {target} in staging"
+        return True, f"Forged skill {target} in staging with standard structure"
 
     @staticmethod
     def deploy_skill(approval, staging_dir, global_store):
@@ -574,9 +585,26 @@ def main():
             lock_data = json.load(open(lock_file)); locked_skills = lock_data.get("skills", {})
             for d in os.listdir(GLOBAL_SKILLS_PATH):
                 if os.path.isdir(os.path.join(GLOBAL_SKILLS_PATH, d)) and not d.startswith("."):
-                    h = get_skill_hash(os.path.join(GLOBAL_SKILLS_PATH, d))
-                    if d not in locked_skills or locked_skills[d]["hash"] != h: print(f"[!] {d} DRIFTED")
-                    else: print(f"[+] {d} VERIFIED")
+                    skill_path = os.path.join(GLOBAL_SKILLS_PATH, d)
+                    skill_md = os.path.join(skill_path, "SKILL.md")
+                    
+                    # 1. Structural Check
+                    if not os.path.exists(skill_md):
+                        print(f"[X] {d}: MISSING SKILL.MD")
+                        continue
+                    
+                    with open(skill_md, "r") as f:
+                        content = f.read()
+                        if not content.startswith("---") or "name:" not in content or "description:" not in content:
+                            print(f"[X] {d}: INVALID FRONTMATTER (platform will not detect)")
+                            continue
+                    
+                    # 2. Hash Verification
+                    h = get_skill_hash(skill_path)
+                    if d not in locked_skills or locked_skills[d]["hash"] != h:
+                        print(f"[!] {d} DRIFTED")
+                    else:
+                        print(f"[+] {d} VERIFIED")
 
     elif args.command == "scheduler":
         if args.scheduler_command == "run-once":
