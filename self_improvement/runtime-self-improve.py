@@ -78,11 +78,23 @@ class RegistryManager:
             data["skills"][skill_name] = {
                 "version": "0.1.0",
                 "last_verified_at": None,
-                "supported_runtimes": ["opencode", "claude", "codex", "gemini"]
+                "supported_runtimes": ["opencode", "claude", "codex", "gemini"],
+                "usage": {"last_seen_at": None, "invocation_count_30d": 0, "recommendation_count_30d": 0},
+                "replacement": {"replaced_by": None, "reason": None},
+                "deprecation": {"status": "active", "deprecated_at": None, "archive_after": None, "approval_id": None}
             }
         data["skills"][skill_name]["state"] = state
         if metadata:
-            data["skills"][skill_name].update(metadata)
+            # Deep merge for usage/replacement/deprecation if provided
+            for key in ["usage", "replacement", "deprecation"]:
+                if key in metadata:
+                    if key not in data["skills"][skill_name]: data["skills"][skill_name][key] = {}
+                    data["skills"][skill_name][key].update(metadata[key])
+            # Standard fields
+            for key, val in metadata.items():
+                if key not in ["usage", "replacement", "deprecation"]:
+                    data["skills"][skill_name][key] = val
+        
         if state in ["verified", "locked"]:
             data["skills"][skill_name]["last_verified_at"] = datetime.now().isoformat() + "Z"
         RegistryManager.save(data)
@@ -330,6 +342,18 @@ class ApplyHandlers:
                 RegistryManager.set_state(sname, "locked")
         return True, "Updated skills.lock.json and promoted verified skills to locked"
 
+    @staticmethod
+    def deprecate_skill(approval):
+        target = approval["action"]["target"]
+        RegistryManager.set_state(target, "deprecated", {
+            "deprecation": {
+                "status": "deprecated",
+                "deprecated_at": datetime.now().isoformat() + "Z",
+                "approval_id": approval["approval_id"]
+            }
+        })
+        return True, f"Set {target} to deprecated state in registry"
+
 class RollbackHandlers:
     @staticmethod
     def rollback_skill_deploy(approval, global_store):
@@ -378,6 +402,17 @@ def main():
     lifecycle_arc = lifecycle_sub.add_parser("archive"); lifecycle_arc.add_argument("skill")
     lifecycle_sub.add_parser("verify")
     lifecycle_sub.add_parser("init-all")
+
+    # Deprecation commands (Milestone 2M)
+    deprecation_p = skills_sub.add_parser("deprecation")
+    deprecation_sub = deprecation_p.add_subparsers(dest="deprecation_command")
+    deprecation_sub.add_parser("scan")
+    deprecation_sub.add_parser("recommend")
+    dep_plan = deprecation_sub.add_parser("plan"); dep_plan.add_argument("skill")
+    
+    archive_p = skills_sub.add_parser("archive")
+    archive_sub = archive_p.add_subparsers(dest="archive_command")
+    arc_plan = archive_sub.add_parser("plan"); arc_plan.add_argument("skill")
 
     # Eval commands (Milestone 2L)
     eval_p = skills_sub.add_parser("eval")
@@ -456,7 +491,87 @@ def main():
                     else: print(f"[+] {s:<30} OK ({sdata.get('state')})")
                 if errors == 0: print("\nLifecycle verification PASSED.")
                 else: print(f"\nLifecycle verification FAILED with {errors} issues."); sys.exit(1)
+        elif args.skill_command == "deprecation":
+            reg_data = RegistryManager.load()
+            if args.deprecation_command == "scan":
+                print("Scanning skill usage from events...")
+                usage_counts = Counter()
+                last_seen = {}
+                if os.path.exists(EVENTS_PATH):
+                    with open(EVENTS_PATH, "r") as f:
+                        for line in f:
+                            try:
+                                ev = json.loads(line)
+                                ts = ev.get("timestamp_start")
+                                for s in ev.get("skills_invoked", []):
+                                    usage_counts[s] += 1
+                                    if s not in last_seen or ts > last_seen[s]: last_seen[s] = ts
+                            except: continue
+                
+                for sname in reg_data["skills"]:
+                    RegistryManager.set_state(sname, reg_data["skills"][sname]["state"], {
+                        "usage": {
+                            "invocation_count_30d": usage_counts[sname],
+                            "last_seen_at": last_seen.get(sname)
+                        }
+                    })
+                print(f"Usage scan complete. Updated registry.")
+
+            elif args.deprecation_command == "recommend":
+                print("# Skill Deprecation Recommendations\n")
+                candidates = []
+                for sname, sdata in reg_data["skills"].items():
+                    reasons = []
+                    usage = sdata.get("usage", {})
+                    # Criteria 1: Zero usage for Watched skills
+                    if sdata["state"] == "watched" and usage.get("invocation_count_30d", 0) == 0:
+                        reasons.append("Zero usage in current event window (watched state)")
+                    
+                    # Criteria 2: Test fixtures (placeholder logic)
+                    if "test" in sname.lower():
+                        reasons.append("Identified as likely test fixture")
+
+                    if reasons:
+                        candidates.append({"skill": sname, "reasons": reasons, "state": sdata["state"]})
+
+                if not candidates:
+                    print("No deprecation candidates identified.")
+                else:
+                    for c in candidates:
+                        print(f"## {c['skill']} [{c['state']}]")
+                        for r in c["reasons"]: print(f"  - {r}")
+                        print(f"  Recommendation: `skills deprecation plan {c['skill']}`\n")
+
+            elif args.deprecation_command == "plan":
+                sname = args.skill
+                if sname not in reg_data["skills"]: print("Skill not found."); return
+                aid = f"appr_dep_{sname}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                plan = {
+                    "schema_version": "0.1", "approval_id": aid, "created_at": datetime.now().isoformat() + "Z",
+                    "status": "pending", "action": {"type": "deprecate_skill", "target": sname, "mutation_level": "high"},
+                    "why": {"pattern": "Unused or redundant", "confidence": "medium"},
+                    "proposed_changes": [f"Set {sname} state to deprecated", "Add deprecation warning to SKILL.md"],
+                    "safety_checks_required": ["skills lifecycle verify"], "audit_log": []
+                }
+                os.makedirs(APPROVALS_DIR, exist_ok=True)
+                with open(os.path.join(APPROVALS_DIR, f"{aid}.json"), "w") as f: json.dump(plan, f, indent=2)
+                print(f"Deprecation plan created: {aid}")
+
+        elif args.skill_command == "archive":
+            if args.archive_command == "plan":
+                sname = args.skill
+                aid = f"appr_arc_{sname}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                plan = {
+                    "schema_version": "0.1", "approval_id": aid, "status": "pending",
+                    "action": {"type": "archive_skill", "target": sname, "mutation_level": "critical"},
+                    "proposed_changes": [f"Move {sname} to archive/", f"Remove {sname} from global store"],
+                    "safety_checks_required": ["git status", "skills lifecycle verify"], "audit_log": []
+                }
+                with open(os.path.join(APPROVALS_DIR, f"{aid}.json"), "w") as f: json.dump(plan, f, indent=2)
+                print(f"Archive plan created: {aid}")
+        
         elif args.skill_command == "eval":
+
             evals_file = os.path.join(GLOBAL_SKILLS_PATH, "skills.evals.json")
             if not os.path.exists(evals_file): print("No evals file found."); return
             with open(evals_file, "r") as f: evals_data = json.load(f)
@@ -578,6 +693,20 @@ def main():
         elif args.approval_command == "list":
             for f in sorted(glob.glob(os.path.join(APPROVALS_DIR, "appr_*.json")), reverse=True):
                 with open(f, "r") as fin: d = json.load(fin); print(f"{d['approval_id']:<25} {d['status']:<15} {d['action']['type']:<20} {d['created_at']}")
+        elif args.approval_command == "show":
+            f = os.path.join(APPROVALS_DIR, f"{args.approval_id}.json")
+            if os.path.exists(f):
+                with open(f, "r") as fin: data = json.load(fin)
+                print(f"# Approval Packet: {data['action']['type']}\nID: {data['approval_id']}\nStatus: {data['status']}")
+                print(f"Mutation Level: {data['action']['mutation_level']}")
+                print(f"Why: {data['why'].get('pattern', 'N/A')} (confidence: {data['why'].get('confidence', 'N/A')})")
+                print("\nProposed Changes:")
+                for c in data.get('proposed_changes', []): print(f"- {c}")
+                print("\nSafety Checks:")
+                for s in data.get('safety_checks_required', []): print(f"- {s}")
+                print("\nAudit Log:")
+                for entry in data.get('audit_log', []): print(f"[{entry['timestamp']}] {entry['message']}")
+            else: print("Approval not found.")
         elif args.approval_command in ["approve", "reject"]:
             f = os.path.join(APPROVALS_DIR, f"{args.approval_id}.json")
             if os.path.exists(f):
@@ -596,6 +725,7 @@ def main():
                     if atype == "forge_skill": success, msg = ApplyHandlers.forge_skill(data, STAGING_DIR)
                     elif atype == "deploy_skill": success, msg = ApplyHandlers.deploy_skill(data, STAGING_DIR, GLOBAL_SKILLS_PATH)
                     elif atype == "update_skills_lock": success, msg = ApplyHandlers.update_skills_lock(data, GLOBAL_SKILLS_PATH)
+                    elif atype == "deprecate_skill": success, msg = ApplyHandlers.deprecate_skill(data)
                     else: success, msg = False, "Unknown"
                 except Exception as e: success, msg = False, str(e)
                 data["status"] = "verified" if success else "failed_verification"

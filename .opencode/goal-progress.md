@@ -1,3 +1,21 @@
+## Checkpoint 58 - 2026-05-15 04:43 (Cole)
+
+### Changed
+- Implemented **Milestone 2M: Skill Deprecation & Replacement**.
+- Enriched `skills.registry.json` with `usage`, `replacement`, and `deprecation` metadata.
+- Added `skills deprecation` command group to `runtime-self-improve.py`: `scan`, `recommend`, `plan`.
+- Integrated `deprecate_skill` handler into the **Controlled Apply Pipeline**.
+- Scanned 30-day usage from `AgentRunEvent` history and identified unused `watched` skills.
+- Successfully deprecated `credit-card-kb` via the formal approval flow.
+- Established AMB procedure for Skill Deprecation & Replacement (ID: `20260515044333074577-3c71294a`).
+
+### Validation
+- Command: `python3 runtime-self-improve.py skills deprecation recommend`
+- Result: **PASS**; identified candidates (vw-maintenance, bambu-image-tag) with zero usage in the current window.
+
+### Next
+- Proceed to **Milestone 2N: Cross-Runtime Auto-Scheduling**.
+
 ## Checkpoint 57 - 2026-05-15 04:40 (Cole)
 
 ### Changed
