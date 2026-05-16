@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.6.0 - 2026-05-15
+## Unreleased
 
 ### Added
 - Added runtime-agnostic self-improvement pipeline based on `AgentRunEvent`.
@@ -15,6 +15,8 @@
 - Mutating actions require explicit approval.
 - Scheduler runs in observe/recommend mode.
 - Raw transcripts, caches, tool-output, and local databases are excluded from backups.
+
+> Note: the self-improvement and SkillOps work above exists in the repo, but it is not treated as a trusted closed `v1.6.0` release until git-backed acceptance evidence and synchronized version surfaces are present.
 
 ## 1.5.1
 

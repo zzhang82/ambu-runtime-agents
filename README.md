@@ -41,6 +41,8 @@ v1.5.0 adds metadata-derived context-aware guardrails on top of the profile and 
 
 ## Self-Improvement / SkillOps Layer
 
+This section documents in-repo self-improvement work. It should not be treated as proof of a trusted closed `v1.6.0` release unless git-backed acceptance evidence and synchronized version surfaces say so.
+
 `runtime-agents` includes a local-first self-improvement system for observing agent runs, detecting repeated workflows, and safely turning them into reusable skills.
 
 The system is event-driven, not a background listener by default. Runtimes such as opencode, Claude/CCR, Codex, Gemini, and runtime-agents emit or expose logs. These are normalized into `AgentRunEvent` records and stored locally.

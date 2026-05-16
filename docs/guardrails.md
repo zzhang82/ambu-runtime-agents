@@ -1,6 +1,6 @@
-# Guardrails (v1.5.0)
+# Guardrails (v1.5.1)
 
-`runtime-agents` v1.5.0 adds metadata-derived context-aware guardrails.
+`runtime-agents` v1.5.1 continues the metadata-derived context-aware guardrail layer introduced in v1.5.0.
 
 ## Scope
 

@@ -1,3 +1,22 @@
+## Checkpoint 65 - 2026-05-15 22:59
+
+### Changed
+- Reconciled repo version surfaces back to the trusted baseline `v1.5.1` by updating `pyproject.toml` and release-facing docs.
+- Reframed the previous `1.6.0` changelog section as `Unreleased` pending real git-backed release evidence.
+- Added `tests/test_version_sync.py` to enforce version/contract alignment between `pyproject.toml`, CLI output, and docs.
+- Synced `~/.config/runtime-agents/VERSION` to `1.5.1` and reinstalled the user-level editable package so both global and `.venv` `agentctl` resolve to `1.5.1` / `agentctl-v1.5.1`.
+
+### Validation
+- Command: `python3 -m unittest discover -s tests && source .venv/bin/activate && python -m runtime_agents.cli version --json && agentctl version --json && agentctl smoke --json && agentctl doctor --json && agentctl selftest --json`
+- Result: PASS. Unit tests passed (`Ran 148 tests`), both CLI entry paths reported `1.5.1` / `agentctl-v1.5.1`, and smoke/doctor/selftest completed successfully.
+
+### Next
+- Create the narrow version-integrity commit for the reconciled repo files.
+- Resume dogfooding from the restored `v1.5.1` baseline only after the worktree is clean again.
+
+### Stop reason, if any
+- None.
+
 ## Checkpoint 64 - 2026-05-15 19:58
 
 ### Changed

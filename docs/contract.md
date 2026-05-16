@@ -1,4 +1,4 @@
-# runtime-agents Contract (v1.5.0)
+# runtime-agents Contract (v1.5.1)
 
 ## Commands
 - agentctl
@@ -120,6 +120,6 @@
 
 ## Version contract
 - `agentctl version --json` reports the installed `runtime-agents` package version.
-- `agentctl version --json` reports contract `agentctl-v1.5.0`.
+- `agentctl version --json` reports contract `agentctl-v1.5.1`.
 - The repo source is the authority for installed `agentctl` and `agentbot` behavior.
 - Config-home `VERSION` may exist for local runtime metadata, but it is not the public release version source of truth.
