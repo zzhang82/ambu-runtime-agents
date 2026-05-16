@@ -1,3 +1,21 @@
+## Checkpoint 64 - 2026-05-15 19:58
+
+### Changed
+- Added `docs/skill-evolution-loop.md` to document the current external skill loop and the recommended future integration path into `runtime-agents`.
+- Explicitly recorded the release-authority rule that treats `v1.5.1` as the latest trusted closed release unless `v1.6.0` is proven by git-backed acceptance evidence.
+- Noted that the project-local `.opencode/model-routing.md` is missing and global routing fallback was used for this checkpoint.
+
+### Validation
+- Command: file reads of `docs/`, `pyproject.toml`, and `.opencode/*` plus creation of `docs/skill-evolution-loop.md`
+- Result: New architecture note added in repo docs and aligned with the current version-drift findings.
+
+### Next
+- Return to the active goal: **Milestone 2P - Restore Drill**.
+- Separately, before any new feature work, reconcile version truth across git history, package metadata, CLI output, tests, docs, and config-home version files.
+
+### Stop reason, if any
+- None.
+
 ## Checkpoint 63 - 2026-05-15 19:45 (Cole)
 
 ### Changed
