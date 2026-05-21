@@ -45,6 +45,14 @@ Make OpenCode CLI the explicit primary execution substrate for `runtime-agents` 
 - Record which config fields currently choose runtime/tool/model.
 - Add regression tests for current direct-runtime compatibility before changing defaults.
 
+Baseline artifact:
+
+- `docs/opencode-runtime-baseline.md`
+
+Regression artifact:
+
+- `tests/test_execution_substrate.py`
+
 Validation:
 
 ```bash

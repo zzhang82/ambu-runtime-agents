@@ -14,6 +14,7 @@ from pathlib import Path
 
 from runtime_agents import actions as actions_mod
 from runtime_agents import assistant_router as assistant_router_mod
+from runtime_agents import execution_substrate as execution_substrate_mod
 from runtime_agents import guardrails as guardrails_mod
 from runtime_agents import paths as paths_mod
 from runtime_agents import plans as plans_mod
@@ -1274,12 +1275,16 @@ def run_task(args):
     approved = parse_approved(getattr(args, "approve", []))
     unapproved = unauthorized_approvals(approvals, approved)
     if getattr(args, "dry_run", False):
+        substrate = execution_substrate_mod.classify_agent_execution(agent_cfg)
         would_run = not unapproved
         print_json({
             "would_run": would_run,
             "status": "dry_run_ok" if would_run else "approval_required",
             "agent": args.agent,
             "tool": tool,
+            "execution_substrate": substrate["execution_substrate"],
+            "legacy_direct": substrate["legacy_direct"],
+            "intended_primary_substrate": substrate["intended_primary_substrate"],
             "model": model,
             "autonomy": autonomy,
             "approval_capabilities": approvals,
@@ -1300,6 +1305,7 @@ def run_task(args):
         "task_id": tid,
         "agent": args.agent,
         "tool": tool,
+        **execution_substrate_mod.classify_agent_execution(agent_cfg),
         "model": model,
         "status": "approval_required" if unapproved else "running",
         "started_at": now_iso(),
@@ -1404,11 +1410,15 @@ def iterate_cmd(args):
     unapproved = unauthorized_approvals(approvals, approved)
     would_run = not blocked and not unapproved
     if args.dry_run:
+        substrate = execution_substrate_mod.classify_agent_execution(agent_cfg)
         print_json({
             "would_run": would_run,
             "status": "dry_run_ok" if would_run else "approval_required",
             "agent": args.agent,
             "tool": tool,
+            "execution_substrate": substrate["execution_substrate"],
+            "legacy_direct": substrate["legacy_direct"],
+            "intended_primary_substrate": substrate["intended_primary_substrate"],
             "model": model,
             "autonomy": autonomy,
             "goal": goal,
@@ -1479,6 +1489,7 @@ def iterate_cmd(args):
         "mode": "iterate",
         "agent": args.agent,
         "tool": tool,
+        **execution_substrate_mod.classify_agent_execution(agent_cfg),
         "model": model,
         "status": "running",
         "started_at": started,
@@ -2486,6 +2497,7 @@ def inspect_cmd(args):
         "autonomy": agent_cfg.get("autonomy"),
         "fallback_profiles": agent_cfg.get("fallback_profiles") or [],
         "approval_required": agent_cfg.get("approval_required") or [],
+        **execution_substrate_mod.classify_agent_execution(agent_cfg),
     }
     print_json(payload)
     return 0
