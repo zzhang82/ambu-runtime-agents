@@ -26,6 +26,14 @@ Use default subagent routing for first-pass drafts and bounded implementation on
 
 Each subagent draft must be reviewed by the main Goal Runner before it becomes accepted repo guidance.
 
+Each subagent should use `skillops-mentor` as a routing preflight before choosing deeper skills. The preflight must scan the skill registry rather than loading all skills, then name any primary/supporting skill it actually needs.
+
+Subagent SkillOps preflight prompt:
+
+```text
+Use skillops-mentor first. Run the registry scan. Choose only the minimum skills needed for this track. Do not load every skill. Do not use deprecated skills. If the task is implementation, prefer repo/source inspection and tests over skill memory. If the task mutates files, state the approval/validation path.
+```
+
 Required review checks:
 
 - aligns with ADR 0001
