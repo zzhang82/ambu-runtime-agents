@@ -1,5 +1,7 @@
 # Backlog: Queue Hygiene and Assistant UX
 
+Status: Done for initial baseline. Merged in `433438b Clarify queue cleanup and assistant counts`.
+
 ## Objective
 
 Improve operator clarity after `v1.5.1` burn-in by making queue residue, assistant payloads, and Telegram status/queue views easier to understand without adding watchers or learning automation.

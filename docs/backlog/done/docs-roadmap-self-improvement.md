@@ -1,5 +1,7 @@
 # Backlog: Docs Roadmap and Self-Improvement Experimental Quarantine
 
+Status: Done for initial baseline. Merged in `5686e5c Quarantine self-improvement prototype in docs`.
+
 ## Objective
 
 Align docs with ADR 0001 and quarantine the older multi-runtime self-improvement / SkillOps prototype without deleting useful code.

@@ -1,6 +1,8 @@
 # Architecture Pivot Backlog
 
-This folder contains implementation-ready planning notes for the accepted architecture pivot in `docs/adr/0001-opencode-telegram-memory-pivot.md`.
+This folder tracks architecture-pivot planning notes for `docs/adr/0001-opencode-telegram-memory-pivot.md`.
+
+The first pivot baseline is complete. Completed planning notes are archived under `docs/backlog/done/`.
 
 ## Current decision
 
@@ -19,17 +21,21 @@ human
 
 SkillOps Milestone 2P Restore Drill is suspended, not deleted. Revisit it after the pivot tracks reach an initial integrated baseline.
 
-## Tracks
+## Current active tracks
 
-- `opencode-runtime.md` - make OpenCode the explicit execution substrate.
-- `telegram-main-agent.md` - evolve Telegram from command wrapper to main-agent channel.
-- `memory-amh-amb.md` - define AMB/AMH/runtime memory boundaries.
-- `queue-assistant-ux.md` - improve queue hygiene and assistant/operator scanability.
-- `docs-roadmap-self-improvement.md` - quarantine old self-improvement work and align docs.
+None. The initial integrated baseline has landed.
+
+## Completed tracks
+
+- `done/opencode-runtime.md` - OpenCode runtime characterization baseline.
+- `done/telegram-main-agent.md` - Telegram assistant UX baseline.
+- `done/memory-amh-amb.md` - AMB/AMH memory contract baseline.
+- `done/queue-assistant-ux.md` - queue cleanup classification and assistant count clarity.
+- `done/docs-roadmap-self-improvement.md` - docs alignment and self-improvement quarantine.
 
 ## Worktree convention
 
-Suggested branch/worktree names:
+Completed branch/worktree names:
 
 ```text
 track/opencode-runtime

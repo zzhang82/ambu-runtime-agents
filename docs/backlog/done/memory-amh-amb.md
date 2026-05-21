@@ -1,5 +1,7 @@
 # Backlog: AMB Substrate and AMH Workflow Layer
 
+Status: Done for initial baseline. Merged in `5a86920 Document AMB and AMH memory contract`.
+
 ## Objective
 
 Define and implement the memory boundary where AMB is the governed durable memory substrate and Agent-Memory-Harness (AMH) is the workflow/governance layer around AMB.

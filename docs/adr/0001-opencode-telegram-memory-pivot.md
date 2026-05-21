@@ -160,9 +160,40 @@ Rejected alternatives:
 
 No implementation track should treat the old SkillOps backup/restore design as final until this revisit happens.
 
-## Candidate Worktree Tracks
+## Implementation Status
 
-After this ADR is accepted and the active goal is updated, split work can proceed by track:
+The initial integrated pivot baseline has landed.
+
+Completed tracks:
+
+```text
+track/memory-amh-amb
+  -> merged as 5a86920 Document AMB and AMH memory contract
+  -> added docs/memory-amh-amb-contract.md and reconciled architecture/contract terminology
+
+track/opencode-runtime
+  -> merged as 5025474 Characterize OpenCode runtime substrate
+  -> characterized current direct adapters as legacy-direct and recorded OpenCode as intended substrate
+  -> no live OpenCode execution hook was merged in this baseline
+
+track/docs-roadmap-self-improvement
+  -> merged as 5686e5c Quarantine self-improvement prototype in docs
+  -> aligned README/CHANGELOG/docs with ADR 0001 and quarantined old self-improvement work
+
+track/queue-assistant-ux
+  -> merged as 433438b Clarify queue cleanup and assistant counts
+  -> added structured validation-artifact classification and assistant typed counts
+
+track/telegram-main-agent
+  -> merged as 0ab4769 Improve Telegram assistant baseline UX
+  -> improved Telegram assistant copy/tests without expanding execution authority
+```
+
+Validation after merge included unit tests, smoke, doctor, selftest, AMB health, assistant count checks, queue cleanup dry-run, and Telegram safety checks.
+
+## Completed Worktree Tracks
+
+The accepted split work proceeded by track:
 
 ```text
 track/opencode-runtime

@@ -1,5 +1,18 @@
 # Goal: Architecture Pivot Tracks
 
+## Current Status
+
+The initial integrated architecture-pivot baseline is complete.
+
+Completed tracks:
+- OpenCode runtime characterization
+- Telegram assistant baseline UX
+- AMB/AMH memory contract
+- Queue/assistant UX cleanup
+- Docs roadmap and self-improvement quarantine
+
+Next decision: decide whether to revisit the suspended SkillOps Milestone 2P Restore Drill now, or plan the next pivot slice from the completed baseline.
+
 ## Status of Previous Goal
 
 SkillOps Milestone 2P - Restore Drill is **suspended**, not deleted.

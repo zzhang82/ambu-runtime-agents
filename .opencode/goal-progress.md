@@ -1,3 +1,22 @@
+## Checkpoint 72 - 2026-05-21 01:35
+
+### Changed
+- Archived completed backlog track plans under `docs/backlog/done/`.
+- Updated `docs/backlog/README.md` to show no active backlog tracks remain for the initial integrated baseline.
+- Updated ADR 0001 with implementation status and merge commit references for all five completed tracks.
+- Updated `.opencode/GOAL.md` to mark the initial architecture-pivot baseline complete and prompt the next decision.
+
+### Validation
+- Command: moved backlog docs, updated ADR/goal/progress status, and prepared for final status/diff validation.
+- Result: Backlog cleanup is docs-only; final validation still pending.
+
+### Next
+- Validate docs status and commit the cleanup.
+- Decide whether to revisit suspended SkillOps Milestone 2P Restore Drill or plan the next pivot slice.
+
+### Stop reason, if any
+- None.
+
 ## Checkpoint 71 - 2026-05-21 01:25
 
 ### Changed

@@ -1,5 +1,7 @@
 # Backlog: OpenCode Runtime Consolidation
 
+Status: Done for initial baseline. Merged in `5025474 Characterize OpenCode runtime substrate`.
+
 ## Objective
 
 Make OpenCode CLI the explicit primary execution substrate for `runtime-agents` while preserving the existing control-plane responsibilities: orchestration, policy, profiles/tools, runbook routing, queue/task state, and operator UX.

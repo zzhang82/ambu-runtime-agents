@@ -1,5 +1,7 @@
 # Backlog: Telegram Main-Agent Channel
 
+Status: Done for initial baseline. Merged in `0ab4769 Improve Telegram assistant baseline UX`.
+
 ## Objective
 
 Evolve `agentbot` from a slash-command control wrapper into the main human-facing agent/persona channel while preserving the `agentctl` safety boundary.
