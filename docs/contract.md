@@ -76,9 +76,18 @@
 - agentctl owns state, policy, runbook validation, and assistant execution.
 - agentd stays dumb.
 - agentbot stays thin and shells out to agentctl.
-- AMB stays memory authority.
+- AMB stays the governed durable memory substrate and MCP-compatible recall/writeback path.
+- AMH, when configured, is the optional memory workflow/governance layer around AMB; base `agentctl` operation must not require AMH.
+- Runtime local state remains operational queue/task/plan/run/session state, not durable memory.
+- Repo files, git history, tests, manifests, and release artifacts remain implementation and release authority; AMB memory is not release proof by itself.
 - Packaged runbooks are defaults; config runbooks may override by id but cannot bypass the typed-action allowlist.
 - Assistant routing is deterministic and does not use an LLM router.
+
+## Memory governance contract
+- `docs/memory-amh-amb-contract.md` defines the AMH/AMB docs-only interface vocabulary for recall requests, recall decisions, memory candidates, writeback decisions, receipts, audit events, authority classes, namespace resolution, and degraded modes.
+- Authority classes are `context_hint`, `handoff`, `status`, `procedure`, `decision`, `belief_proposal`, `release_evidence`, `persona_preference`, and `sensitive_excluded`.
+- Degraded memory modes are `amh_unavailable`, `amb_unavailable`, `namespace_missing`, `policy_denied`, and `verification_failed`.
+- Existing direct AMB recall/writeback behavior remains compatible while AMH adapters mature.
 
 ## Runbook sources
 - Packaged defaults: `src/runtime_agents/default_runbooks/`
