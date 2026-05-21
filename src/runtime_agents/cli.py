@@ -2167,6 +2167,9 @@ def queue_active_cmd(args):
     return 0
 
 
+ACTIVE_QUEUE_STATUSES = {"queued", "running", "approval_required", "retrying"}
+
+
 def queue_cancel_cmd(args):
     item = latest_queue_items().get(args.queue_id)
     if not item:
@@ -2186,46 +2189,89 @@ def queue_cancel_cmd(args):
     return 0
 
 
-def is_validation_artifact_queue_item(item):
+def classify_validation_artifact_queue_item(item):
     status = item.get("status")
-    if status not in {"queued", "running", "approval_required", "retrying"}:
-        return False, "inactive_status"
-    fields = [
-        item.get("goal") or "",
-        item.get("created_from") or "",
-        item.get("workspace") or "",
-        item.get("schedule_id") or "",
-        item.get("plan_id") or "",
-        item.get("reason") or "",
-        item.get("task_id") or "",
-    ]
-    haystack = "\n".join(str(value) for value in fields if value).lower()
-    markers = [
-        "selftest",
-        "telegram selftest",
-        "validation",
-        "smoke",
-        "test-ws",
-        "/tmp/opencode",
-    ]
-    if any(marker in haystack for marker in markers):
-        return True, "matched_validation_marker"
-    return False, "uncertain"
+    if status not in ACTIVE_QUEUE_STATUSES:
+        return {
+            "matched": False,
+            "confidence": "none",
+            "reason": "inactive_status",
+            "markers": [],
+            "fields": [],
+            "safe_to_cancel": False,
+        }
+
+    field_values = {
+        "goal": item.get("goal") or "",
+        "created_from": item.get("created_from") or "",
+        "workspace": item.get("workspace") or "",
+        "cwd": item.get("cwd") or "",
+        "schedule_id": item.get("schedule_id") or "",
+        "plan_id": item.get("plan_id") or "",
+        "reason": item.get("reason") or "",
+        "task_id": item.get("task_id") or "",
+    }
+    matches = []
+    for field, value in field_values.items():
+        lower_value = str(value).lower()
+        for marker in ("telegram selftest", "selftest", "validation", "smoke", "test-ws", "/tmp/opencode"):
+            if marker in lower_value:
+                matches.append((field, marker))
+
+    if not matches:
+        return {
+            "matched": False,
+            "confidence": "none",
+            "reason": "uncertain",
+            "markers": [],
+            "fields": [],
+            "safe_to_cancel": False,
+        }
+
+    fields = sorted({field for field, _marker in matches})
+    markers = sorted({marker for _field, marker in matches})
+    if "telegram selftest" in markers or "selftest" in markers or "validation" in str(field_values["created_from"]).lower():
+        confidence = "high"
+        reason = "goal_contains_selftest" if "goal" in fields and "selftest" in markers else "known_validation_metadata"
+    elif any(marker in markers for marker in ("validation", "smoke", "/tmp/opencode")):
+        confidence = "medium"
+        reason = "matched_validation_marker"
+    else:
+        confidence = "low"
+        reason = "weak_test_workspace_marker"
+
+    return {
+        "matched": True,
+        "confidence": confidence,
+        "reason": reason,
+        "markers": markers,
+        "fields": fields,
+        "safe_to_cancel": confidence in {"high", "medium"},
+    }
+
+
+def is_validation_artifact_queue_item(item):
+    classification = classify_validation_artifact_queue_item(item)
+    return bool(classification.get("safe_to_cancel")), classification.get("reason") or "uncertain"
 
 
 def queue_cleanup_validation_cmd(args):
-    active_items = [item for item in latest_queue_items().values() if item.get("status") in {"queued", "running", "approval_required", "retrying"}]
+    active_items = [item for item in latest_queue_items().values() if item.get("status") in ACTIVE_QUEUE_STATUSES]
     cancelled = []
     skipped = []
     for item in active_items:
-        matched, match_reason = is_validation_artifact_queue_item(item)
-        if not matched:
-            skipped.append({"queue_id": item.get("queue_id"), "status": item.get("status"), "reason": "skipped_uncertain", "match_reason": match_reason})
+        classification = classify_validation_artifact_queue_item(item)
+        match_reason = classification.get("reason") or "uncertain"
+        if not classification.get("safe_to_cancel"):
+            skipped.append({"queue_id": item.get("queue_id"), "status": item.get("status"), "reason": "skipped_uncertain", "match_reason": match_reason, "classification": classification})
             continue
         if args.dry_run:
-            cancelled.append({"queue_id": item.get("queue_id"), "status": item.get("status"), "would_cancel": True, "reason": args.reason, "match_reason": match_reason})
+            cancelled.append({"queue_id": item.get("queue_id"), "status": item.get("status"), "would_cancel": True, "reason": args.reason, "match_reason": match_reason, "classification": classification})
             continue
-        cancelled.append(cancel_queue_item(item.get("queue_id"), args.reason, previous_status=item.get("status"), cancelled_by="agentctl queue cleanup-validation"))
+        cancelled_payload = cancel_queue_item(item.get("queue_id"), args.reason, previous_status=item.get("status"), cancelled_by="agentctl queue cleanup-validation")
+        cancelled_payload["match_reason"] = match_reason
+        cancelled_payload["classification"] = classification
+        cancelled.append(cancelled_payload)
     payload = {
         "dry_run": bool(args.dry_run),
         "cancelled": cancelled,

@@ -24,8 +24,22 @@ def _execution_payload(route: dict[str, Any], result: ActionResult, execution: l
 def _completed_route_payload(route: dict[str, Any], execution: list[dict[str, Any]]) -> dict[str, Any]:
     payload = dict(route)
     payload["execution"] = execution
-    payload["action_result"] = ActionResult.completed("assistant_exec", route.get("risk") or "read_only", {"count": len(execution)}, route.get("message")).to_payload()
+    payload["action_result"] = ActionResult.completed("assistant_exec", route.get("risk") or "read_only", _assistant_exec_counts(execution), route.get("message")).to_payload()
     return payload
+
+
+def _assistant_exec_counts(execution: list[dict[str, Any]]) -> dict[str, int]:
+    result = {"count": len(execution), "action_count": len(execution)}
+    for item in execution:
+        if isinstance(item.get("workspaces"), dict):
+            result["workspace_count"] = len(item["workspaces"])
+        if isinstance(item.get("profiles"), dict):
+            result["profile_count"] = len(item["profiles"])
+        if isinstance(item.get("tools"), dict):
+            result["tool_count"] = len(item["tools"])
+        if isinstance(item.get("items"), list):
+            result["queue_item_count"] = len(item["items"])
+    return result
 
 
 def _failed_route_payload(route: dict[str, Any], result: ActionResult, execution: list[dict[str, Any]]) -> dict[str, Any]:
@@ -354,5 +368,5 @@ def execute_route(route: dict[str, Any], *, dry_run: bool = False, deps: DepMap 
         if not result.ok:
             return _route_result_payload(route, result, execution)
 
-    final = ActionResult.completed("assistant_exec", route.get("risk") or "read_only", {"count": len(execution)}, route.get("message"))
+    final = ActionResult.completed("assistant_exec", route.get("risk") or "read_only", _assistant_exec_counts(execution), route.get("message"))
     return _route_result_payload(route, final, execution)
