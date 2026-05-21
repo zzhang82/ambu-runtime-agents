@@ -1,3 +1,22 @@
+## Checkpoint 71 - 2026-05-21 01:25
+
+### Changed
+- Created and merged five architecture-pivot worktree tracks after subagent implementation and main-runner review.
+- Merged memory contract, OpenCode runtime characterization, docs/self-improvement quarantine, queue/assistant UX, and Telegram assistant baseline tracks.
+- Kicked back the OpenCode runtime branch once to remove an unvalidated live `opencode` execution hook before merge.
+- Kicked back the docs roadmap branch once to fix quarantine/memory terminology consistency before merge.
+
+### Validation
+- Command: per-branch validation included `python3 -m unittest discover -s tests`, `agentctl smoke --json`, `agentctl doctor --json`, `agentctl selftest --json`, plus track-specific queue/assistant/Telegram/AMB checks.
+- Result: Merged tracks reported passing validation after review. Final master validation remains to be run after this checkpoint update.
+
+### Next
+- Run final master validation across tests, smoke, doctor, selftest, and key targeted commands.
+- Commit this progress checkpoint if validation passes.
+
+### Stop reason, if any
+- None.
+
 ## Checkpoint 70 - 2026-05-21 00:30
 
 ### Changed
