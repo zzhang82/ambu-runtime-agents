@@ -4,6 +4,8 @@
 
 This note treats `runtime-agents v1.5.1` as the latest trusted closed release unless a clean git-backed `v1.6.0` release commit and acceptance evidence are proven.
 
+ADR 0001 is the current architecture source of truth. It reclassifies the old multi-runtime self-improvement / SkillOps path as experimental and redirects execution integration toward OpenCode CLI, with AMB as the governed durable memory substrate and Agent-Memory-Harness as the workflow/governance layer around AMB.
+
 Current rule:
 
 1. Git commit history + working tree
@@ -26,7 +28,7 @@ AMB and handoff memory are useful context, but they are not release authority.
 - `skill-deployment-verifier` - guardrail / deployment integrity check
 - `repo-architecture-sensor` - foundation / map unknown repositories quickly
 
-## Current External Loop
+## Quarantined External Loop
 
 ```text
 agent logs
@@ -39,7 +41,7 @@ agent logs
   -> AMB memory
 ```
 
-This loop already exists outside the core `runtime-agents` release surface and should be dogfooded there first.
+This loop exists outside the core `runtime-agents` release surface and is quarantined prototype material. It should not be expanded as the product roadmap unless a future ADR promotes a narrowed version of it.
 
 ## Current Runtime-Agents Baseline
 
@@ -71,7 +73,9 @@ Candidate future typed states:
 - `skill_deployment_check`
 - `skill_status`
 
-## Proposed Future Mapping
+## Candidate Future Mapping
+
+The mappings below are candidates to mine from the quarantine, not a release plan.
 
 ### Learning Sessions
 
@@ -134,27 +138,29 @@ Primary output:
 - clearer operator affordances
 - skill-aware workflow suggestions
 
-## Suggested Roadmap
+## Quarantined Candidate Roadmap
+
+This is not the active release roadmap. ADR 0001 supersedes direct expansion of the multi-runtime self-improvement path until a future promotion checkpoint.
 
 ```text
 Now:
   v1.5.1 dogfood / burn-in
 
 Then:
-  v1.6.0 Learning Sessions
+  candidate Learning Sessions
     integrate scan/suggest/cluster
     output learning reports and skill candidates
 
 Then:
-  v1.7.0 Skill Lifecycle
+  candidate Skill Lifecycle
     formalize candidate -> brief -> forge -> verify
 
 Then:
-  v1.8.0 Watchers
+  candidate Watchers
     use profiles and guardrails to monitor external state safely
 
 Then:
-  v1.9.0 Home NAS vertical slice
+  candidate Home NAS vertical slice
 ```
 
 ## Guardrails
@@ -162,4 +168,5 @@ Then:
 - Do not treat AMB memory as release proof.
 - Do not promote `v1.6.0` until git history, version surfaces, and acceptance evidence agree.
 - Do not absorb large self-improvement features into the core control plane before burn-in validates the need.
+- Do not expand direct Codex/Claude/Gemini runtime adapters as the primary architecture path without a future ADR.
 - Prefer thin wrappers around proven external workflows before deeper platform integration.

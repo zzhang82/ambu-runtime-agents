@@ -2,6 +2,12 @@
 
 This repo is now the source of truth for the runtime-agents control plane.
 
+Trusted release baseline: `runtime-agents v1.5.1` / `agentctl-v1.5.1`.
+
+Current architecture direction is governed by `docs/adr/0001-opencode-telegram-memory-pivot.md`: `runtime-agents` owns orchestration and policy, OpenCode owns model/runtime execution, Telegram evolves toward the main human-facing agent channel, AMB remains the governed durable memory substrate, and Agent-Memory-Harness is the workflow/governance layer around AMB.
+
+The older multi-runtime self-improvement and SkillOps prototype under `self_improvement/` is experimental/quarantined. It is retained as design evidence, but it is not part of the trusted `agentctl` contract and is not proof of a closed `v1.6.0` release.
+
 Installed commands:
 - agentctl
 - agentd
@@ -39,11 +45,18 @@ v1.5.0 adds metadata-derived context-aware guardrails on top of the profile and 
 
 `assistant-exec` now routes through `runtime_agents.actions`, which centralizes typed action execution while preserving the existing JSON contract.
 
-## Self-Improvement / SkillOps Layer
+## Experimental Self-Improvement / SkillOps Prototype
 
-This section documents in-repo self-improvement work. It should not be treated as proof of a trusted closed `v1.6.0` release unless git-backed acceptance evidence and synchronized version surfaces say so.
+This section documents quarantined in-repo prototype work. It should not be treated as proof of a trusted closed `v1.6.0` release unless git-backed acceptance evidence and synchronized version surfaces say so.
 
-`runtime-agents` includes a local-first self-improvement system for observing agent runs, detecting repeated workflows, and safely turning them into reusable skills.
+`self_improvement/runtime-self-improve.py` includes a local-first self-improvement prototype for observing agent runs, detecting repeated workflows, and turning them into reusable skills.
+
+Prototype status:
+- experimental and quarantined by ADR 0001
+- not part of the stable `agentctl-v1.5.1` CLI contract
+- not the default roadmap direction for execution integration
+- useful as design evidence for future ADR-approved work
+- mutating commands can affect local event state, scheduler state, global skill-store files, rollback state, or backup/NAS paths
 
 The system is event-driven, not a background listener by default. Runtimes such as opencode, Claude/CCR, Codex, Gemini, and runtime-agents emit or expose logs. These are normalized into `AgentRunEvent` records and stored locally.
 
@@ -71,16 +84,34 @@ Key guarantees:
 - Skill store changes are verified against `skills.lock.json`.
 - Rollback uses Git and lockfile state as file truth.
 
-## CLI examples
+## Inspection and Status Prototype Examples
+
+Use these only as prototype examples. Do not treat them as stable release commands. `ingest` can write local event state, so it is listed separately from lower-risk inspection/status commands.
 
 ```bash
-python3 self_improvement/runtime-self-improve.py ingest --runtime opencode --recent 20
 python3 self_improvement/runtime-self-improve.py scan
 python3 self_improvement/runtime-self-improve.py suggest
 python3 self_improvement/runtime-self-improve.py schedule check
 python3 self_improvement/runtime-self-improve.py skills verify
 python3 self_improvement/runtime-self-improve.py backup status
 ```
+
+Local event/state write prototype example:
+
+```bash
+python3 self_improvement/runtime-self-improve.py ingest --runtime opencode --recent 20
+```
+
+Avoid mutating prototype commands unless a future ADR and release plan explicitly promotes them:
+
+```bash
+python3 self_improvement/runtime-self-improve.py scheduler run-once
+python3 self_improvement/runtime-self-improve.py backup create
+python3 self_improvement/runtime-self-improve.py approvals apply
+python3 self_improvement/runtime-self-improve.py rollback apply
+```
+
+See `docs/self_improvement_baseline.md` for the quarantine note and command risk categories.
 
 ### Event model
 

@@ -24,8 +24,12 @@ agentbot:
 - no arbitrary shell
 
 AMB:
-- memory authority
+- governed durable memory substrate
 - recall/writeback via MCP stdio
+
+Agent-Memory-Harness / AMH:
+- workflow/governance layer around AMB
+- future owner for packet compilation, readiness checks, failure tracking, and promotion workflows
 
 ## Runbook routing model
 
@@ -120,6 +124,7 @@ This keeps routing data-driven while preserving a hard safety boundary around ex
 - no Telegram-specific business logic duplication
 - no local runbook bypass of the action allowlist
 - repo source must remain the authority for installed entrypoints
+- AMH must not become a second durable memory store over AMB
 
 ## Release boundary
 - v1.2.0 introduced the extracted control modules and initial runbook surface

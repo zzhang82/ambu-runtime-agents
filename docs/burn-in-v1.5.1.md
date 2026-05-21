@@ -111,10 +111,12 @@ The main friction found during burn-in was not command failure. It was usability
 
 ## Candidate v1.6 Directions
 
+Supersession note: ADR 0001 and the pivot backlog now supersede the feature recommendation in this burn-in report. Treat the options below as historical burn-in observations, not an active `v1.6.0` release plan; feature choice is paused until the OpenCode runtime, Telegram main-agent, AMB/AMH memory, queue UX, and self-improvement quarantine tracks reach an initial integrated baseline.
+
 ### Learning Sessions
 Pros:
-- Best match for the documented skill-evolution direction.
-- Builds directly on AMB + repeated workflow sensing rather than adding a new external integration surface.
+- Best match for the historical documented skill-evolution direction before ADR 0001.
+- Builds directly on AMB-governed durable records plus repeated workflow sensing rather than adding a new external integration surface.
 - Burn-in suggests the control plane itself is stable enough to start capturing usage and friction systematically.
 
 Cons:
@@ -153,13 +155,13 @@ Evidence:
 
 ## Recommendation
 
-Do one more short dogfood cycle around real operator usage, but keep the release bias toward **v1.6.0 Learning Sessions** rather than Watchers.
+Do one more short dogfood cycle around real operator usage. The previous release bias toward **v1.6.0 Learning Sessions** is superseded by ADR 0001 and the pivot backlog; feature choice is paused until the pivot tracks produce an initial integrated baseline.
 
 Reason:
 - The control plane appears stable.
-- The documented strategic direction already favors learning from repeated work.
+- The documented strategic direction now favors first clarifying the OpenCode runtime, Telegram main-agent, AMB/AMH memory, queue UX, and self-improvement quarantine tracks.
 - Burn-in did not show a missing watcher capability as the main gap.
-- The strongest immediate product issue is operational clarity and residue handling, which is compatible with a Learning Sessions release as long as queue hygiene is controlled first.
+- The strongest immediate product issue is operational clarity and residue handling, which should be addressed before promoting any learning-session automation.
 
 ## Follow-up Tasks
 

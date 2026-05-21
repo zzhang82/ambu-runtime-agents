@@ -76,7 +76,8 @@
 - agentctl owns state, policy, runbook validation, and assistant execution.
 - agentd stays dumb.
 - agentbot stays thin and shells out to agentctl.
-- AMB stays memory authority.
+- AMB stays the governed durable memory substrate.
+- AMH is the workflow/governance layer around AMB when those adapters mature.
 - Packaged runbooks are defaults; config runbooks may override by id but cannot bypass the typed-action allowlist.
 - Assistant routing is deterministic and does not use an LLM router.
 
