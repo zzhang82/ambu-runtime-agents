@@ -135,6 +135,22 @@ class AssistantExecTests(unittest.TestCase):
         self.assertEqual(payload["action_result"]["status"], "completed")
         self.assertEqual(payload["execution"][0]["type"], "list_workspaces")
 
+    def test_list_workspaces_reports_action_and_workspace_counts(self):
+        config_home = Path(self.env["RUNTIME_AGENTS_CONFIG_HOME"])
+        workspaces_path = config_home / "workspaces.yaml"
+        workspaces = yaml.safe_load(workspaces_path.read_text(encoding="utf-8"))
+        other_workspace = Path(self.tempdir) / "other-workspace"
+        other_workspace.mkdir()
+        workspaces["other-ws"] = {"path": str(other_workspace), "memory_namespace": "project:other-ws"}
+        workspaces_path.write_text(yaml.safe_dump(workspaces, sort_keys=False), encoding="utf-8")
+
+        proc = _run_cli(["assistant-exec", "list", "workspaces", "--json"], self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        result = json.loads(proc.stdout)["action_result"]["result"]
+        self.assertEqual(result["count"], 1)
+        self.assertEqual(result["action_count"], 1)
+        self.assertEqual(result["workspace_count"], 2)
+
     def test_fix_tests_requires_confirmation(self):
         proc = _run_cli(["assistant-exec", "fix", "tests", "in", "test-ws", "--json"], self.env)
         self.assertEqual(proc.returncode, 0, proc.stderr)
