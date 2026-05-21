@@ -145,7 +145,11 @@ def is_allowed(user_id, cfg):
 
 
 def format_help():
-    return """runtime-agents Telegram Control Plane
+    return """runtime-agents Telegram Assistant
+
+Chat naturally for safe status and inspection, for example:
+what's going on? | list workspaces | what is blocked?
+Write-like requests still ask for confirmation before agentctl acts.
 
 Read/control:
 /status /queue /plans /schedules /workspaces
@@ -199,13 +203,19 @@ def handle_status():
     p = fmt_counts(plans)
     enabled_schedules = len([s for s in schedules if s.get("enabled", True) and not s.get("removed")])
     last = daemon.get("last_task_id") or "none"
+    next_action = "Ask 'what is blocked?' or use /queue for details."
+    if p.get('blocked', 0):
+        next_action = "Use /plans, then /plan <plan_id> to inspect blocked work."
+    elif q.get('queued', 0) or q.get('running', 0):
+        next_action = "Use /queue to inspect active work."
     return f"""runtime-agents v{version.get('version', 'unknown')}
 Daemon: {'running' if daemon.get('running') else 'stopped'}
 Paused: {str(bool(daemon.get('paused'))).lower()}
 Queue: {q.get('queued', 0)} pending / {q.get('running', 0)} running
 Plans: {p.get('blocked', 0)} blocked / {p.get('running', 0)} running / {p.get('completed', 0)} completed
 Schedules: {enabled_schedules} enabled
-Last task: {last}""".strip()
+Last task: {last}
+Next: {next_action}""".strip()
 
 
 def handle_queue():
@@ -448,7 +458,7 @@ def execute_assistant_action(action, user_id):
 
 def handle_assistant_text(text, user_id):
     if (text or "").strip().lower() in {"hi", "hello", "hey"}:
-        return "Hi — I’m your runtime-agents assistant. Ask me: what's going on?, list workspaces, what is blocked?, or fix tests in test-ws."
+        return "Hi. I’m your runtime-agents assistant. Ask me: what's going on?, list workspaces, what is blocked?, or fix tests in test-ws. Write-like actions still require confirmation."
     session = user_session(user_id)
     route = run_agentctl(["assistant-route", text, "--json", "--session-json", json.dumps(session)])
     if not route["ok"]:

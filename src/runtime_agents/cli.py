@@ -3159,7 +3159,7 @@ def telegram_status_cmd(args):
 
 
 def run_agentbot_test(user_id, text):
-    agentbot = shutil.which("agentbot") or str(Path.home() / ".local" / "bin" / "agentbot")
+    agentbot = resolve_agentbot_bin()
     return subprocess.run([agentbot, "--test-command", str(user_id), text], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120)
 
 
@@ -3187,8 +3187,8 @@ def telegram_test_cmd(args):
     add_step("logs_tail_capped", proc.returncode == 0 and len(proc.stdout) < 4500, proc.stdout.strip() or proc.stderr.strip())
     for name, command, expected in [
         ("assistant_status", "what's going on?", ["Daemon:", "Queue:", "Plans:"]),
-        ("assistant_check", "check test-ws", ["read-only health check", "Queued:"]),
-        ("assistant_fix_confirm", "fix failing tests in test-ws", ["Reply YES", "create a plan"]),
+        ("assistant_check", "check test-ws", ["Queued", "Workspace: test-ws", "Agent: planner"]),
+        ("assistant_fix_confirm", "fix failing tests in test-ws", ["Reply YES", "create", "plan"]),
         ("assistant_danger_refuse", "deploy the project", ["can't run deploy"]),
     ]:
         proc = run_agentbot_test(allowed, command)
