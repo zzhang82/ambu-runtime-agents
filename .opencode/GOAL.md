@@ -1,4 +1,14 @@
-# Goal: SkillOps Milestone 2P - Restore Drill
+# Goal: Architecture Pivot Tracks
+
+## Status of Previous Goal
+
+SkillOps Milestone 2P - Restore Drill is **suspended**, not deleted.
+
+Revisit it after the OpenCode runtime, Telegram main-agent, Memory Harness, self-improvement-experimental, and docs-roadmap tracks reach an initial integrated baseline.
+
+Reason: the project is pivoting away from expanding the old multi-runtime SkillOps path, so the restore drill should not block the new architecture tracks. Backup/restore safety remains important and must be revisited once the new architecture clarifies which SkillOps surfaces remain relevant.
+
+# Prior Goal: SkillOps Milestone 2P - Restore Drill
 
 ## Objective
 Prove that the NAS backup system can successfully restore the SkillOps environment into a temporary directory and pass full integrity verification, ensuring disaster recovery reliability.

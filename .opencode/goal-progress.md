@@ -1,3 +1,91 @@
+## Checkpoint 70 - 2026-05-21 00:30
+
+### Changed
+- Updated project-local routing guidance to use default subagent models for the architecture-pivot worktrees.
+- Removed the previous requirement to target `vertex/gemini-3.5-flash` for backlog subagents.
+
+### Validation
+- Command: patched `.opencode/model-routing.md`
+- Result: Routing now matches the user's instruction to use default models for subagents.
+
+### Next
+- Commit the ADR/backlog/routing baseline.
+- Create split worktrees and launch one subagent per track.
+
+### Stop reason, if any
+- None.
+
+## Checkpoint 69 - 2026-05-21 00:20
+
+### Changed
+- Added project-local `.opencode/model-routing.md` to record the intended backlog subagent route: `vertex/gemini-3.5-flash` for first-pass drafting, with GPT-5.5/Cole retaining final review.
+- Created `docs/backlog/` with planning files for OpenCode runtime consolidation, Telegram main-agent channel, AMB/AMH memory layering, queue/assistant UX, and docs/self-improvement quarantine.
+- Updated ADR 0001 to use the corrected memory model: AMB as governed durable substrate and AMH as workflow/governance layer around AMB.
+
+### Validation
+- Command: launched read-only subagents for the independent backlog tracks, reviewed their outputs, and synthesized repo-local backlog files.
+- Result: Backlog files are docs-only; no product code changed. Routing intent is documented but not hard-enforced through `opencode.json` until provider/model config is verified.
+
+### Next
+- Review and commit the ADR/backlog/routing docs.
+- Create split git worktrees from the backlog track names when ready.
+
+### Stop reason, if any
+- None.
+
+## Checkpoint 68 - 2026-05-21 00:05
+
+### Changed
+- Accepted ADR 0001 and marked the architecture pivot as the active direction.
+- Suspended **SkillOps Milestone 2P - Restore Drill** without deleting it.
+- Updated `.opencode/GOAL.md` to record that 2P should be revisited after the OpenCode runtime, Telegram main-agent, Memory Harness, self-improvement-experimental, and docs-roadmap tracks reach an initial integrated baseline.
+
+### Validation
+- Command: patched ADR 0001, `.opencode/GOAL.md`, and `.opencode/goal-progress.md`
+- Result: Restore Drill is now explicitly suspended with a revisit condition instead of silently abandoned.
+
+### Next
+- Plan the split worktree tracks for the architecture pivot.
+- Keep the 2P Restore Drill on the revisit list after the new baseline is integrated.
+
+### Stop reason, if any
+- None.
+
+## Checkpoint 67 - 2026-05-21 00:00
+
+### Changed
+- Created `docs/adr/0001-opencode-telegram-memory-pivot.md` to capture the proposed architecture pivot.
+- Recorded the proposed direction: OpenCode CLI as execution substrate, Telegram as the main-agent channel, Agent-Memory-Harness as memory backbone, and AMB as staging/status/compatibility memory.
+- Identified candidate split-worktree tracks for future implementation planning.
+
+### Validation
+- Command: inspected README, architecture, contract, schedule/self-improvement code, Telegram bot code, and current git state before writing the ADR.
+- Result: ADR matches live repo evidence and records that no feature implementation should start until the active goal is reaffirmed or superseded.
+
+### Next
+- Decide whether to finish the active **Milestone 2P Restore Drill** first or supersede it with the architecture pivot.
+- If pivot is accepted, update roadmap/docs and create split git worktrees by track.
+
+### Stop reason, if any
+- None.
+
+## Checkpoint 66 - 2026-05-15 23:10
+
+### Changed
+- Ran a `v1.5.1` burn-in pass across version, profiles, tools, guardrails, assistant routing, queue lifecycle, smoke, doctor, and selftest surfaces.
+- Added `docs/burn-in-v1.5.1.md` with evidence-based findings and candidate `v1.6` directions.
+
+### Validation
+- Command: burn-in suite using `agentctl version/profile/tool/guardrail/profile run/assistant-route/assistant-exec/queue/smoke/doctor/selftest`
+- Result: Core surfaces passed; main friction observed was queue residue noise, not broken functionality.
+
+### Next
+- Validate the burn-in report diff and commit only `docs/burn-in-v1.5.1.md`.
+- Keep feature work paused until burn-in findings are reviewed.
+
+### Stop reason, if any
+- None.
+
 ## Checkpoint 65 - 2026-05-15 22:59
 
 ### Changed
