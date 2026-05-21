@@ -105,12 +105,6 @@ This keeps routing data-driven while preserving a hard safety boundary around ex
 - returns explicit `ActionResult` values for success, confirmation, block, unsupported, and failure states
 - uses dependency injection from `cli.py` so execution can be tested without coupling routing to CLI globals
 
-This keeps routing data-driven while preserving a hard safety boundary around execution.
-
-## Current state artifacts
-
-This keeps routing data-driven while preserving a hard safety boundary around execution.
-
 ## Current state artifacts
 - tasks.jsonl
 - queue.jsonl
@@ -127,6 +121,7 @@ This keeps routing data-driven while preserving a hard safety boundary around ex
 - repo source must remain the authority for installed entrypoints
 - repo files, git history, tests, manifests, and release artifacts remain implementation and release authority over memory context
 - AMB memory is context and governed durable storage, not release proof by itself
+- AMH must not become a second durable memory store over AMB
 
 ## Release boundary
 - v1.2.0 introduced the extracted control modules and initial runbook surface

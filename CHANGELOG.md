@@ -2,21 +2,24 @@
 
 ## Unreleased
 
+### Documentation
+- Aligned README/self-improvement documentation with ADR 0001: `runtime-agents v1.5.1` / `agentctl-v1.5.1` remains the trusted baseline, and the older multi-runtime self-improvement / SkillOps path is quarantined as experimental design evidence.
+
 ### Added
-- Added runtime-agnostic self-improvement pipeline based on `AgentRunEvent`.
-- Added high-fidelity ingestion for opencode, Claude/CCR, Codex, Gemini, and runtime-agents.
-- Added `runtime-self-improve` commands for ingest, scan, suggest, recommend, schedule, approvals, rollback, lifecycle, evals, and backup.
-- Added SkillOps governance with `skills.lock.json`, `skills.registry.json`, and `skills.evals.json`.
-- Added approval-gated controlled apply pipeline.
-- Added rollback and recovery support for failed mutations.
-- Added NAS backup support for the global skill store.
+- Quarantined prototype: added runtime-agnostic self-improvement pipeline based on `AgentRunEvent`.
+- Quarantined prototype: added high-fidelity ingestion for opencode, Claude/CCR, Codex, Gemini, and runtime-agents.
+- Quarantined prototype: added `runtime-self-improve` commands for ingest, scan, suggest, recommend, schedule, approvals, rollback, lifecycle, evals, and backup.
+- Quarantined prototype: added SkillOps governance with `skills.lock.json`, `skills.registry.json`, and `skills.evals.json`.
+- Quarantined prototype: added approval-gated controlled apply pipeline.
+- Quarantined prototype: added rollback and recovery support for failed mutations.
+- Quarantined prototype: added NAS backup support for the global skill store.
 
 ### Safety
 - Mutating actions require explicit approval.
 - Scheduler runs in observe/recommend mode.
 - Raw transcripts, caches, tool-output, and local databases are excluded from backups.
 
-> Note: the self-improvement and SkillOps work above exists in the repo, but it is not treated as a trusted closed `v1.6.0` release until git-backed acceptance evidence and synchronized version surfaces are present.
+> Note: the self-improvement and SkillOps work above exists in the repo as quarantined prototype material. It is not part of the stable `agentctl-v1.5.1` contract and is not treated as a trusted closed `v1.6.0` release until git-backed acceptance evidence, a future ADR/promotion decision, and synchronized version surfaces are present.
 
 ## 1.5.1
 
