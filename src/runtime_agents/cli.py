@@ -2,6 +2,7 @@
 import argparse
 import datetime as dt
 import fcntl
+import hashlib
 import importlib.metadata
 import json
 import os
@@ -15,6 +16,7 @@ from pathlib import Path
 from runtime_agents import actions as actions_mod
 from runtime_agents import assistant_router as assistant_router_mod
 from runtime_agents import execution_substrate as execution_substrate_mod
+from runtime_agents import fabric_entry as fabric_entry_mod
 from runtime_agents import guardrails as guardrails_mod
 from runtime_agents import paths as paths_mod
 from runtime_agents import plans as plans_mod
@@ -24,6 +26,7 @@ from runtime_agents import runbooks as runbooks_mod
 from runtime_agents import schedules as schedules_mod
 from runtime_agents import state as state_mod
 from runtime_agents import tools_registry as tools_registry_mod
+from runtime_agents import quota_watcher as quota_watcher_mod
 from runtime_agents.events import EventCapture
 from runtime_agents.models import TASK_STATUSES as MODEL_TASK_STATUSES
 
@@ -238,6 +241,223 @@ def atomic_write_json(path, data):
 
 def print_json(data):
     print(json.dumps(data, indent=2, sort_keys=True))
+
+
+def _fabric_runtime_provenance():
+    """Identify the runtime-agents caller without importing the Fabric code."""
+
+    root = Path(__file__).resolve().parents[2]
+    try:
+        commit = subprocess.check_output(
+            ["git", "-C", str(root), "rev-parse", "HEAD"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+    except (OSError, subprocess.CalledProcessError):
+        commit = "unknown"
+    digest = hashlib.sha256(Path(__file__).resolve().read_bytes()).hexdigest()
+    return {
+        "source_commit": commit,
+        "cli_path": str(Path(__file__).resolve()),
+        "cli_digest": digest,
+    }
+
+
+def _quota_watcher_source_binding():
+    path = Path(quota_watcher_mod.__file__).resolve()
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    expected = "752e6d29a0f24771ecda842ad4bbc945ef799045d4577bb2ed9bf0be42d75123"
+    if digest != expected:
+        raise fabric_entry_mod.FabricEntryError("Quota Watcher source digest mismatch")
+    return {
+        "accepted_commit": "e7750e7c0f9d63faadf067505e60ad5a3d147383",
+        "entrypoint": str(path),
+        "entrypoint_digest": digest,
+    }
+
+
+def _fabric_guardrail_payload(args):
+    """Run existing guardrails before any Fabric admission side effect."""
+
+    profile_id = getattr(args, "profile", None)
+    tool_id = getattr(args, "tool", None)
+    if profile_id:
+        resolved = resolve_profile(profile_id, require_workspace=False)
+        payload = evaluate_profile_guardrails(
+            resolved=resolved,
+            action="fabric_admission",
+            tool_id=tool_id,
+        )
+        return payload
+
+    context_state = guardrails_mod.build_context_state(
+        profile_id=None,
+        workspace=None,
+        selected_tools=[],
+        considered_tools=[],
+        action="fabric_admission",
+    )
+    payload = guardrails_mod.evaluate_guardrails(
+        profile=None,
+        profile_id=None,
+        tool=None,
+        requested_tool_id=None,
+        action="fabric_admission",
+        context_state=context_state,
+    )
+    payload.update({"profile": None, "tool": None, "action": "fabric_admission"})
+    return payload
+
+
+def _fabric_rejected(policy_payload):
+    return policy_payload.get("decision") in {"block", "approval_required"}
+
+
+def fabric_run_cmd(args):
+    """Admit one bounded local or coordinated workload through existing authorities."""
+
+    policy_payload = _fabric_guardrail_payload(args)
+    base = {
+        "mode": args.mode,
+        "policy": policy_payload,
+        "runtime_agents": _fabric_runtime_provenance(),
+    }
+    if getattr(args, "dry_run", False):
+        payload = {
+            **base,
+            "would_admit": not _fabric_rejected(policy_payload),
+            "status": "dry_run_ok" if not _fabric_rejected(policy_payload) else "approval_required",
+        }
+        print_json(payload)
+        return 0 if payload["would_admit"] else 2
+    if _fabric_rejected(policy_payload):
+        print_json({**base, "status": policy_payload.get("decision", "blocked")})
+        return 2
+
+    try:
+        if args.mode == "local":
+            if args.workflow != "quota-watcher":
+                raise fabric_entry_mod.FabricEntryError("V0.3 local entry supports quota-watcher only")
+            if not args.state_home or not args.schedule_id:
+                raise fabric_entry_mod.FabricEntryError(
+                    "local mode requires --state-home and --schedule-id"
+                )
+            state_root = Path(args.state_home).expanduser().resolve()
+            production_root = Path(STATE_DIR).expanduser().resolve()
+            if state_root == production_root or production_root in state_root.parents:
+                raise fabric_entry_mod.FabricEntryError(
+                    "local mode requires isolated state outside runtime-agents production state"
+                )
+            quota_source = _quota_watcher_source_binding()
+            schedule = {
+                "workflow": quota_watcher_mod.WORKFLOW_ID,
+                "schedule_id": args.schedule_id,
+                "name": args.schedule_id,
+                "enabled": True,
+                "cron": args.cron,
+                "type": "read_only",
+            }
+            workflow_result = quota_watcher_mod.run_due(
+                schedule,
+                state_home=state_root,
+                max_attempts=args.max_attempts,
+                retry_backoff_seconds=args.retry_backoff,
+                stale_attempt_seconds=args.stale_attempt_seconds,
+            )
+            if not workflow_result.get("attempted"):
+                return_code = 1
+                print_json({**base, "status": workflow_result.get("status", "not_due"), "workflow": workflow_result})
+                return return_code
+            receipt = workflow_result.get("receipt")
+            observation = workflow_result.get("observation")
+            if not isinstance(receipt, dict) or not isinstance(observation, dict):
+                raise fabric_entry_mod.FabricEntryError(
+                    "Quota Watcher returned no authoritative receipt/observation"
+                )
+            watcher_root = quota_watcher_mod._state_root(state_root)
+            receipt_path = quota_watcher_mod._receipt_path(
+                watcher_root, str(receipt.get("occurrence_id"))
+            )
+            evidence_path = Path(str(observation.get("evidence_ref", ""))).expanduser()
+            snapshot_root = Path(args.snapshot_root).expanduser().resolve() if args.snapshot_root else state_root / "fabric"
+            if snapshot_root == production_root or production_root in snapshot_root.parents:
+                raise fabric_entry_mod.FabricEntryError(
+                    "local mode requires an isolated snapshot root outside runtime-agents production state"
+                )
+            materialized = fabric_entry_mod.invoke(
+                "materialize-local",
+                {
+                    "schedule": schedule,
+                    "receipt": receipt,
+                    "observation": observation,
+                    "evidence_path": str(evidence_path),
+                    "receipt_ref": str(receipt_path),
+                    "snapshot_root": str(snapshot_root),
+                    "agent_uid": "quota-watcher",
+                    "workload_version": "quota-watcher-v0",
+                    "input_ref": f"schedule:{args.schedule_id}",
+                    "eligibility_pool": "default",
+                    "provenance": {
+                        "source_commit": "e7750e7c0f9d63faadf067505e60ad5a3d147383",
+                    },
+                },
+            )
+            output = {
+                **base,
+                "status": receipt.get("status"),
+                "workflow": workflow_result,
+                "admission": materialized.get("admission"),
+                "snapshot": materialized.get("snapshot"),
+                "inspection": materialized.get("inspection"),
+                "fabric": materialized,
+                "execution_authority": "runtime_agents.quota_watcher",
+                "quota_watcher_source": quota_source,
+            }
+            print_json(output)
+            return 0 if receipt.get("status") == "completed" else 1
+
+        if not args.task_file or not args.postgres_config:
+            raise fabric_entry_mod.FabricEntryError(
+                "coordinated mode requires --task-file and --postgres-config"
+            )
+        task = fabric_entry_mod.read_json_file(args.task_file)
+        submitted = fabric_entry_mod.invoke(
+            "admit-coordinated",
+            {"task": task, "postgres_config": str(Path(args.postgres_config).expanduser())},
+        )
+        output = {
+            **base,
+            "status": submitted.get("status", "queued"),
+            "admission": submitted,
+            "execution_authority": "postgresql.task_row_and_hostkeeper_claim",
+            "local_queue": "not_created",
+        }
+        print_json(output)
+        return 0
+    except (fabric_entry_mod.FabricEntryError, quota_watcher_mod.WatcherError) as exc:
+        print_json({**base, "status": "failed", "error": str(exc)})
+        return 1
+
+
+def fabric_inspect_cmd(args):
+    """Compose a read-only view from snapshots and, for coordination, PostgreSQL."""
+
+    payload = {
+        "snapshot_root": str(Path(args.snapshot_root).expanduser()),
+        "logical_run_id": args.logical_run_id,
+    }
+    if args.mode == "coordinated":
+        if args.task_id:
+            payload["task_id"] = args.task_id
+        if args.postgres_config:
+            payload["postgres_config"] = str(Path(args.postgres_config).expanduser())
+    try:
+        output = fabric_entry_mod.invoke(f"inspect-{args.mode}", payload)
+    except fabric_entry_mod.FabricEntryError as exc:
+        print_json({"mode": args.mode, "logical_run_id": args.logical_run_id, "status": "failed", "error": str(exc)})
+        return 1
+    print_json({"mode": args.mode, **output})
+    return 0
 
 
 def append_task(data):
@@ -4299,6 +4519,35 @@ def main():
     submit.add_argument("--memory-query")
     submit.add_argument("--memory-preview", action="store_true")
     submit.set_defaults(func=submit_cmd)
+
+    fabric = sub.add_parser("fabric", help="admit one bounded local or coordinated Fabric workload")
+    fabric_sub = fabric.add_subparsers(dest="fabric_cmd", required=True)
+    fabric_run = fabric_sub.add_parser("run", help="run or submit through an existing execution path")
+    fabric_run.add_argument("--mode", choices=("local", "coordinated"), required=True)
+    fabric_run.add_argument("--workflow", default="quota-watcher")
+    fabric_run.add_argument("--schedule-id")
+    fabric_run.add_argument("--state-home")
+    fabric_run.add_argument("--snapshot-root")
+    fabric_run.add_argument("--cron", default="* * * * *")
+    fabric_run.add_argument("--max-attempts", type=int, default=2)
+    fabric_run.add_argument("--retry-backoff", type=float, default=2.0)
+    fabric_run.add_argument("--stale-attempt-seconds", type=float, default=120.0)
+    fabric_run.add_argument("--task-file")
+    fabric_run.add_argument("--postgres-config")
+    fabric_run.add_argument("--profile")
+    fabric_run.add_argument("--tool")
+    fabric_run.add_argument("--dry-run", action="store_true")
+    fabric_run.add_argument("--json", action="store_true")
+    fabric_run.set_defaults(func=fabric_run_cmd)
+
+    fabric_inspect = fabric_sub.add_parser("inspect", help="show one derived Fabric run view")
+    fabric_inspect.add_argument("logical_run_id")
+    fabric_inspect.add_argument("--mode", choices=("local", "coordinated"), required=True)
+    fabric_inspect.add_argument("--snapshot-root", required=True)
+    fabric_inspect.add_argument("--task-id")
+    fabric_inspect.add_argument("--postgres-config")
+    fabric_inspect.add_argument("--json", action="store_true")
+    fabric_inspect.set_defaults(func=fabric_inspect_cmd)
 
     queue = sub.add_parser("queue")
     queue.add_argument("--json", action="store_true")
