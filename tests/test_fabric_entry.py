@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -13,7 +14,7 @@ from runtime_agents import fabric_entry
 from runtime_agents import quota_watcher
 
 
-FABRIC_BIN = "/home/zzs333/code/mac-control-contract-fabric-v0.3-fabric/scripts/contract-fabric"
+FABRIC_BIN = shutil.which("contract-fabric") or str(Path.home() / ".local" / "bin" / "contract-fabric")
 SOURCE_COMMIT = "e7750e7c0f9d63faadf067505e60ad5a3d147383"
 
 
@@ -67,7 +68,7 @@ def _fixture_files(root: Path) -> tuple[dict, dict, dict, Path, Path]:
 class FabricEntryTests(unittest.TestCase):
     def test_unknown_mode_is_rejected_by_existing_cli_parser(self):
         env = os.environ.copy()
-        env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1] / "src")
+        env.pop("PYTHONPATH", None)
         result = subprocess.run(
             ["python3", "-m", "runtime_agents.cli", "fabric", "run", "--mode", "automatic", "--dry-run"],
             cwd=Path(__file__).resolve().parents[1],
