@@ -33,6 +33,7 @@ from runtime_agents import tools_registry as tools_registry_mod
 from runtime_agents import quota_watcher as quota_watcher_mod
 from runtime_agents import loop_engine as loop_engine_mod
 from runtime_agents import slim_bridge as slim_bridge_mod
+from runtime_agents import intent_router as intent_router_mod
 from runtime_agents.events import EventCapture
 from runtime_agents.models import TASK_STATUSES as MODEL_TASK_STATUSES
 
@@ -731,6 +732,93 @@ def normalize_iterate_args(args):
             goal.append(token)
         i += 1
     args.goal = goal
+    return args
+
+
+def normalize_do_args(args):
+    prompt = []
+    tokens = list(args.prompt)
+    i = 0
+    if not hasattr(args, "approve") or args.approve is None:
+        args.approve = []
+    if not hasattr(args, "eval_artifact") or args.eval_artifact is None:
+        args.eval_artifact = []
+    while i < len(tokens):
+        token = tokens[i]
+        if token == "--dry-run":
+            args.dry_run = True
+        elif token == "--json":
+            args.json = True
+        elif token == "--fallback":
+            args.fallback = True
+        elif token == "--agent" and i + 1 < len(tokens):
+            args.agent = tokens[i + 1]
+            i += 1
+        elif token.startswith("--agent="):
+            args.agent = token.split("=", 1)[1]
+        elif token == "--check" and i + 1 < len(tokens):
+            args.check = tokens[i + 1]
+            i += 1
+        elif token.startswith("--check="):
+            args.check = token.split("=", 1)[1]
+        elif token == "--eval-artifact" and i + 1 < len(tokens):
+            args.eval_artifact.append(tokens[i + 1])
+            i += 1
+        elif token.startswith("--eval-artifact="):
+            args.eval_artifact.append(token.split("=", 1)[1])
+        elif token == "--approve" and i + 1 < len(tokens):
+            args.approve.append(tokens[i + 1])
+            i += 1
+        elif token.startswith("--approve="):
+            args.approve.append(token.split("=", 1)[1])
+        elif token == "--model" and i + 1 < len(tokens):
+            args.model = tokens[i + 1]
+            i += 1
+        elif token.startswith("--model="):
+            args.model = token.split("=", 1)[1]
+        elif token == "--workspace" and i + 1 < len(tokens):
+            args.workspace = tokens[i + 1]
+            i += 1
+        elif token.startswith("--workspace="):
+            args.workspace = token.split("=", 1)[1]
+        elif token == "--max-rounds" and i + 1 < len(tokens):
+            args.max_rounds = int(tokens[i + 1])
+            i += 1
+        elif token.startswith("--max-rounds="):
+            args.max_rounds = int(token.split("=", 1)[1])
+        elif token == "--max-same-failure" and i + 1 < len(tokens):
+            args.max_same_failure = int(tokens[i + 1])
+            i += 1
+        elif token.startswith("--max-same-failure="):
+            args.max_same_failure = int(token.split("=", 1)[1])
+        elif token == "--check-timeout" and i + 1 < len(tokens):
+            args.check_timeout = int(tokens[i + 1])
+            i += 1
+        elif token.startswith("--check-timeout="):
+            args.check_timeout = int(token.split("=", 1)[1])
+        elif token == "--tail" and i + 1 < len(tokens):
+            args.tail = int(tokens[i + 1])
+            i += 1
+        elif token.startswith("--tail="):
+            args.tail = int(token.split("=", 1)[1])
+        elif token == "--timeout" and i + 1 < len(tokens):
+            args.timeout = int(tokens[i + 1])
+            i += 1
+        elif token.startswith("--timeout="):
+            args.timeout = int(token.split("=", 1)[1])
+        elif token == "--no-memory":
+            args.no_memory = True
+        elif token == "--memory-query" and i + 1 < len(tokens):
+            args.memory_query = tokens[i + 1]
+            i += 1
+        elif token.startswith("--memory-query="):
+            args.memory_query = token.split("=", 1)[1]
+        elif token == "--memory-preview":
+            args.memory_preview = True
+        else:
+            prompt.append(token)
+        i += 1
+    args.prompt = prompt
     return args
 
 
@@ -1513,6 +1601,16 @@ def run_task(args):
     config = load_config()
     agents = config.get("agents") or {}
     if args.agent not in agents:
+        full_prompt = f"{args.agent} {' '.join(args.prompt)}".strip()
+        classified = intent_router_mod.classify_intent(
+            full_prompt,
+            available_agents=set(agents.keys()),
+            default_readonly_agent=config.get("default_readonly_agent", "oracle"),
+        )
+        args.prompt = [full_prompt]
+        args.agent = classified["selected_agent"]
+        args.routing_info = classified
+    if args.agent not in agents:
         raise SystemExit(f"Unknown agent: {args.agent}")
     agent_cfg = agents[args.agent]
     tool = agent_cfg["tool"]
@@ -1558,7 +1656,7 @@ def run_task(args):
     if getattr(args, "dry_run", False):
         substrate = execution_substrate_mod.classify_agent_execution(agent_cfg)
         would_run = not unapproved
-        print_json({
+        payload = {
             "would_run": would_run,
             "status": "dry_run_ok" if would_run else "approval_required",
             "agent": args.agent,
@@ -1575,7 +1673,10 @@ def run_task(args):
             "workspace": getattr(args, "workspace", None),
             "cwd": str(run_cwd),
             "memory_recall": memory_recall,
-        })
+        }
+        if getattr(args, "routing_info", None):
+            payload["routing"] = args.routing_info
+        print_json(payload)
         return 0 if would_run else 2
 
     tid = task_id(args.agent)
@@ -1663,6 +1764,18 @@ def iterate_cmd(args):
     config = load_config()
     agents = config.get("agents") or {}
     if args.agent not in agents:
+        full_goal = f"{args.agent} {' '.join(args.goal)}".strip()
+        classified = intent_router_mod.classify_intent(
+            full_goal,
+            available_agents=set(agents.keys()),
+            has_check=bool(getattr(args, "check", None)),
+            has_artifacts=bool(getattr(args, "eval_artifact", None)),
+            default_readonly_agent=config.get("default_readonly_agent", "oracle"),
+        )
+        args.goal = [full_goal]
+        args.agent = classified["selected_agent"]
+        args.routing_info = classified
+    if args.agent not in agents:
         raise SystemExit(f"Unknown agent: {args.agent}")
     agent_cfg = agents[args.agent]
     tool = agent_cfg["tool"]
@@ -1718,7 +1831,7 @@ def iterate_cmd(args):
     would_run = not blocked and not unapproved
     if args.dry_run:
         substrate = execution_substrate_mod.classify_agent_execution(agent_cfg)
-        print_json({
+        payload = {
             "would_run": would_run,
             "status": "dry_run_ok" if would_run else "approval_required",
             "agent": args.agent,
@@ -1741,7 +1854,10 @@ def iterate_cmd(args):
             "cwd": str(run_cwd),
             "memory_recall": memory_recall,
             "note": "iterate v0.2 blocks push/deploy/secrets/global/destructive/global-install capabilities entirely" if blocked else "",
-        })
+        }
+        if getattr(args, "routing_info", None):
+            payload["routing"] = args.routing_info
+        print_json(payload)
         return 0 if would_run else 2
     if blocked or unapproved:
         tid = iterate_task_id(args.agent)
@@ -2037,6 +2153,146 @@ def iterate_cmd(args):
     if final_status == "blocked":
         return 3
     return 1
+
+
+def do_cmd(args):
+    args = normalize_do_args(args)
+    prompt_str = " ".join(args.prompt).strip()
+    if not prompt_str:
+        raise SystemExit("Prompt is required")
+
+    config = load_config()
+    available_agents = set((config.get("agents") or {}).keys())
+    default_ro = config.get("default_readonly_agent", "oracle")
+
+    has_check = bool(getattr(args, "check", None))
+    has_artifacts = bool(getattr(args, "eval_artifact", None))
+    explicit_agent = getattr(args, "agent", None)
+
+    if explicit_agent:
+        selected_agent = explicit_agent
+        execution_mode = "iterate" if (has_check or has_artifacts) else "run"
+        routing_info = {
+            "intent": "explicit_agent",
+            "selected_agent": selected_agent,
+            "execution_mode": execution_mode,
+            "autonomy": (config.get("agents") or {}).get(selected_agent, {}).get("autonomy", "read_only"),
+            "confidence": 1.0,
+            "matched_keywords": [],
+            "reason": "explicit_agent_flag",
+            "advisory": None,
+            "write_negated": False,
+        }
+    else:
+        # Priority 2: Runbook match if no explicit check or artifact
+        matched_runbook = None
+        if not (has_check or has_artifacts):
+            workspace_names = list(load_workspaces().keys())
+            matched_runbook = runbooks_mod.match_runbook(prompt_str, workspace_names=workspace_names)
+
+        if matched_runbook and matched_runbook.get("status") in ("matched", "needs_clarification"):
+            if getattr(args, "dry_run", False):
+                print_json({
+                    "would_run": True,
+                    "status": "dry_run_ok",
+                    "routing": {
+                        "intent": "runbook",
+                        "runbook_id": matched_runbook.get("runbook_id"),
+                        "title": matched_runbook.get("title"),
+                        "risk": matched_runbook.get("risk"),
+                        "actions": matched_runbook.get("actions", []),
+                    },
+                    "prompt": prompt_str,
+                })
+                return 0
+            deps = {
+                "append_queue": append_queue,
+                "append_schedule": append_schedule,
+                "daemon_status_payload": daemon_status_payload,
+                "default_plan_for_goal": default_plan_for_goal,
+                "derive_plan_status": derive_plan_status,
+                "ensure_state": ensure_state,
+                "latest_queue_items": latest_queue_items,
+                "latest_schedules": latest_schedules,
+                "latest_task": latest_task,
+                "list_plans": list_plans,
+                "load_config": load_config,
+                "load_plan": load_plan,
+                "load_profiles_registry": load_profiles_registry,
+                "load_runbooks": runbooks_mod.load_runbooks,
+                "load_tools_registry": load_tools_registry,
+                "load_workspaces": load_workspaces,
+                "now_iso": now_iso,
+                "paused_file": PAUSED_FILE,
+                "plan_dir": plan_dir,
+                "plan_id": plan_id,
+                "profiles_by_id": profiles_by_id,
+                "queue_id": queue_id,
+                "queue_item_from_schedule": queue_item_from_schedule,
+                "resolve_profile": resolve_profile,
+                "resolve_workspace_options": resolve_workspace_options,
+                "retry_plan_subtask": retry_plan_subtask_action,
+                "save_plan": save_plan,
+                "schedule_by_name": schedule_by_name,
+                "tools_by_id": tools_by_id,
+                "update_plan_status_file": update_plan_status_file,
+            }
+            route_payload = assistant_router_mod._legacy_fields(matched_runbook)
+            result = actions_mod.execute_route(route_payload, dry_run=False, deps=deps)
+            print_json(result)
+            return 0
+
+        # Priority 3 & 4: Intent classification
+        routing_info = intent_router_mod.classify_intent(
+            prompt_str,
+            available_agents=available_agents,
+            has_check=has_check,
+            has_artifacts=has_artifacts,
+            default_readonly_agent=default_ro,
+        )
+        selected_agent = routing_info["selected_agent"]
+        execution_mode = routing_info["execution_mode"]
+
+    if execution_mode == "iterate":
+        sub_args = argparse.Namespace(
+            agent=selected_agent,
+            goal=[prompt_str],
+            check=getattr(args, "check", None),
+            eval_artifact=getattr(args, "eval_artifact", []),
+            max_rounds=getattr(args, "max_rounds", 5),
+            max_same_failure=getattr(args, "max_same_failure", 2),
+            check_timeout=getattr(args, "check_timeout", None),
+            tail=getattr(args, "tail", None),
+            model=getattr(args, "model", None),
+            workspace=getattr(args, "workspace", None),
+            approve=getattr(args, "approve", []),
+            fallback=getattr(args, "fallback", False),
+            timeout=getattr(args, "timeout", 600),
+            no_memory=getattr(args, "no_memory", False),
+            memory_query=getattr(args, "memory_query", None),
+            memory_preview=getattr(args, "memory_preview", False),
+            dry_run=getattr(args, "dry_run", False),
+            json=getattr(args, "json", False),
+            routing_info=routing_info,
+        )
+        return iterate_cmd(sub_args)
+    else:
+        sub_args = argparse.Namespace(
+            agent=selected_agent,
+            prompt=[prompt_str],
+            model=getattr(args, "model", None),
+            workspace=getattr(args, "workspace", None),
+            approve=getattr(args, "approve", []),
+            fallback=getattr(args, "fallback", False),
+            timeout=getattr(args, "timeout", None),
+            no_memory=getattr(args, "no_memory", False),
+            memory_query=getattr(args, "memory_query", None),
+            memory_preview=getattr(args, "memory_preview", False),
+            dry_run=getattr(args, "dry_run", False),
+            json=getattr(args, "json", False),
+            routing_info=routing_info,
+        )
+        return run_task(sub_args)
 
 
 def submit_cmd(args):
@@ -5580,6 +5836,27 @@ def main():
     iterate.add_argument("--timeout", type=int, default=600)
     iterate.add_argument("--check-timeout", type=int, default=300)
     iterate.set_defaults(func=iterate_cmd)
+
+    do_p = sub.add_parser("do")
+    do_p.add_argument("prompt", nargs=argparse.REMAINDER)
+    do_p.add_argument("--agent")
+    do_p.add_argument("--check")
+    do_p.add_argument("--eval-artifact", action="append", default=[], metavar="PATH")
+    do_p.add_argument("--max-rounds", type=int, default=5)
+    do_p.add_argument("--max-same-failure", type=int, default=2)
+    do_p.add_argument("--model")
+    do_p.add_argument("--workspace")
+    do_p.add_argument("--no-memory", action="store_true")
+    do_p.add_argument("--memory-query")
+    do_p.add_argument("--memory-preview", action="store_true")
+    do_p.add_argument("--fallback", action="store_true")
+    do_p.add_argument("--approve", action="append", default=[], metavar="CAPABILITY")
+    do_p.add_argument("--dry-run", action="store_true")
+    do_p.add_argument("--json", action="store_true")
+    do_p.add_argument("--tail", type=int)
+    do_p.add_argument("--timeout", type=int, default=600)
+    do_p.add_argument("--check-timeout", type=int, default=300)
+    do_p.set_defaults(func=do_cmd)
 
     args = parser.parse_args()
     raise SystemExit(args.func(args))
