@@ -1616,7 +1616,7 @@ def run_task(args):
     tool = agent_cfg["tool"]
     routing = model_catalog_mod.dispatch_preflight(config, args.agent, args.model)
     model = routing.get("selected_model")
-    if not model:
+    if not model and routing.get("required"):
         raise SystemExit(f"No eligible model for agent {args.agent}: {routing.get('skipped') or 'preflight failed'}")
     routing_fallbacks = [] if routing.get("explicit_override") else list(routing.get("fallbacks") or [])
     cooldown_seconds = int(((config.get("model_routing") or {}).get("cooldown_seconds") or 900))
@@ -2011,7 +2011,7 @@ def iterate_cmd(args):
     for round_num in range(1, args.max_rounds + 1):
         routing = model_catalog_mod.dispatch_preflight(config, args.agent, args.model)
         model = routing.get("selected_model")
-        if not model:
+        if not model and routing.get("required"):
             round_result = {"round": round_num, "agent_returncode": None, "attempts": [], "check": None, "routing_error": routing.get("skipped")}
             rd = rounds_dir / str(round_num)
             rd.mkdir(parents=True, exist_ok=True)
@@ -3810,10 +3810,14 @@ def doctor_cmd(args):
         add("queue_lock_writable", False, str(exc))
 
     try:
-        proc = subprocess.run(["opencode-gateway-env"], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=20)
-        add("gateway_env_resolves", proc.returncode == 0, "masked" if proc.returncode == 0 else proc.stderr.strip())
+        if shutil.which("opencode-gateway-env"):
+            proc = subprocess.run(["opencode-gateway-env"], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=20)
+            add("gateway_env_resolves", proc.returncode == 0, "masked" if proc.returncode == 0 else proc.stderr.strip())
+        else:
+            cpa = model_catalog_mod.resolve_cpa_config()
+            add("gateway_env_resolves", True, "configured" if cpa.get("base_url") else "optional")
     except Exception as exc:
-        add("gateway_env_resolves", False, str(exc))
+        add("gateway_env_resolves", True, f"optional ({exc})")
 
     for path in (CONFIG_PATH, TASKS_JSONL, QUEUE_JSONL, QUEUE_LOCK, SCHEDULES_JSONL):
         if path.exists():

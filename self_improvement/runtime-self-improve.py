@@ -470,7 +470,7 @@ def main():
             log_scheduler("--- End ---")
 
     elif args.command == "schedule":
-        state_path, policy_path = SCHEDULER_STATE_PATH, "/home/zzs333/code/runtime-agents/self_improvement/policy/scheduling_policy.yaml"
+        state_path, policy_path = SCHEDULER_STATE_PATH, os.path.join(os.path.dirname(__file__), "policy", "scheduling_policy.yaml")
         if not os.path.exists(policy_path): return
         policy = yaml.safe_load(open(policy_path)) if yaml else {}
         state = {"schema_version": "0.1", "last_scan_at": None, "last_skill_verify_hash": None}

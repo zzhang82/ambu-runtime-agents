@@ -86,7 +86,7 @@ def make_env(base_dir: Path):
             "git_push": {"patterns": ["push", "git push"]},
             "deploy": {"patterns": ["deploy"]},
             "secrets": {"patterns": ["api key", "secret", "password", ".env", "credentials"]},
-            "global_config": {"patterns": ["~/.config", "/home/zzs333/.config", "~/.ssh", "/home/zzs333/.ssh", "~/.bashrc", "~/.zshrc"]},
+            "global_config": {"patterns": ["~/.config", str(Path.home() / ".config"), "~/.ssh", str(Path.home() / ".ssh"), "~/.bashrc", "~/.zshrc"]},
             "destructive_delete": {"patterns": ["rm -rf /", "rm -rf ~", "find * -delete"]},
             "global_install": {"patterns": ["npm install -g", "pip install --user", "sudo apt install", "brew install"]},
         },

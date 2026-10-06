@@ -516,7 +516,7 @@ Do not add new automation until restore drill passes.
 - Verified deployment using `skill-deployment-verifier`.
 
 ### Validation
-- Command: `ls -R /home/zzs333/.config/opencode/skills/repo-architecture-sensor/`
+- Command: `ls -R ~/.config/opencode/skills/repo-architecture-sensor/`
 - Result: PASS; SKILL.md and agents/openai.yaml present and correct.
 - `Deployment Verification Report` status: verified.
 

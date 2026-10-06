@@ -13,7 +13,7 @@ except ImportError:  # pragma: no cover
     yaml = None
 
 
-DEFAULT_QUOTA_URL = "http://192.168.50.175:8441/widget"
+DEFAULT_QUOTA_URL = os.environ.get("CPA_QUOTA_URL", "http://localhost:8441/widget")
 SNAPSHOT_NAME = "model-catalog.json"
 COOLDOWNS_NAME = "model-cooldowns.json"
 DEFAULT_STALE_SECONDS = 300

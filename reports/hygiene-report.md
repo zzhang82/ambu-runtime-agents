@@ -1,6 +1,6 @@
 # Agent Hygiene Report: runtime-agents
 
-- **Repository**: `/home/zzs333/code/runtime-agents`
+- **Repository**: `runtime-agents`
 - **Date**: 2026-05-15 19:46
 - **Auditor**: agent-hygiene-auditor
 

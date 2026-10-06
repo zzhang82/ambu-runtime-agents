@@ -7,7 +7,7 @@
 The main friction found during burn-in was not command failure. It was usability noise around queue lifecycle state: `queue active` exposed a large backlog of stale validation artifacts, and `queue cleanup-validation --dry-run` correctly identified them, but the amount of residue makes routine operational state look unhealthy until cleanup is explicitly run.
 
 ## Environment
-- repo: `/home/zzs333/code/runtime-agents`
+- repo: `runtime-agents`
 - version: `1.5.1`
 - contract: `agentctl-v1.5.1`
 - date: `2026-05-15T23:03:42-04:00`

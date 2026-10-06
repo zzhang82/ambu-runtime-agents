@@ -3,14 +3,34 @@ requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "runtime-agents"
+name = "ambu-runtime-agents"
 version = "1.5.1"
-description = "Local-first personal agent control plane"
+description = "Ambu: Local-first autonomous agent control plane with anti-loop verification and dynamic role routing"
 readme = "README.md"
 requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+  {name = "Frank Zhang", email = "zheshuang.zhang@yahoo.ca"}
+]
+keywords = ["agents", "ai", "opencode", "control-plane", "automation", "anti-loop", "developer-tools"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Software Development :: Build Tools",
+  "Topic :: System :: Systems Administration",
+]
 dependencies = [
   "PyYAML>=6.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/zzhang82/ambu-runtime-agents"
+Repository = "https://github.com/zzhang82/ambu-runtime-agents"
 
 [project.scripts]
 agentctl = "runtime_agents.cli:main"

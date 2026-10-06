@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from runtime_agents.models import PolicyDecision
 
 
@@ -26,7 +28,7 @@ CAPABILITY_PATTERNS = {
     "git_push": ["push", "git push"],
     "deploy": ["deploy"],
     "secrets": ["api key", "secret", "password", ".env", "credentials"],
-    "global_config": ["~/.config", "/home/zzs333/.config", "~/.ssh", "/home/zzs333/.ssh", "~/.bashrc", "~/.zshrc", "global config"],
+    "global_config": ["~/.config", str(Path.home() / ".config"), "~/.ssh", str(Path.home() / ".ssh"), "~/.bashrc", "~/.zshrc", "global config"],
     "destructive_delete": ["rm -rf /", "rm -rf ~", "find * -delete", "delete everything"],
     "global_install": ["npm install -g", "pip install --user", "sudo apt install", "brew install", "global install"],
     "broker_order_submit": [],
