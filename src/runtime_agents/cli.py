@@ -1952,6 +1952,12 @@ def iterate_cmd(args):
     append_task(base_meta)
     event_capture.set_run_id(tid)
 
+    is_json = getattr(args, "json", False)
+
+    def _log(msg: str):
+        if not is_json:
+            print(msg, file=sys.stderr, flush=True)
+
     def _run_evaluation(check_cmd: str | None, artifacts: list[str]) -> dict[str, Any]:
         started_eval = now_iso()
         res = {"started_at": started_eval, "ended_at": started_eval, "returncode": 0, "stdout": "", "stderr": ""}
@@ -1977,6 +1983,7 @@ def iterate_cmd(args):
     round_results = []
     initial_dir = rounds_dir / "0"
     initial_dir.mkdir(parents=True, exist_ok=True)
+    _log(f"[Round 0] Evaluating initial check: {args.check or 'artifacts only'}")
     check_result = _run_evaluation(args.check, eval_artifacts)
     initial_fp = loop_engine_mod.fingerprint_check_failure(check_result.get("stdout", ""), check_result.get("stderr", ""), check_result.get("returncode", 1))
     initial_gap, initial_gap_detail = loop_engine_mod.classify_gap(check_result.get("stdout", ""), check_result.get("stderr", ""), check_result.get("returncode", 1))
@@ -1991,6 +1998,7 @@ def iterate_cmd(args):
         "gap_detail": initial_gap_detail,
     })
     if check_result["returncode"] == 0:
+        _log("[Round 0] Check passed immediately. Task completed.")
         meta = {**base_meta, "status": "completed", "ended_at": now_iso(), "rounds": 0, "final_check_passed": True}
         result = {"task_id": tid, "status": "completed", "agent": args.agent, "rounds": 0, "max_rounds": args.max_rounds, "check": args.check, "eval_artifacts": eval_artifacts, "final_check_passed": True}
         if getattr(args, "tail", None) is not None:
@@ -2003,6 +2011,7 @@ def iterate_cmd(args):
         print_json(result)
         return 0
 
+    _log(f"[Round 0] Check failed (exit {check_result['returncode']}). Gap: {initial_gap} ({initial_gap_detail}). Fingerprint: {initial_fp}")
     max_same_failure = getattr(args, "max_same_failure", 2) or 2
     failure_counts = {initial_fp: 1}
     last_fingerprint = initial_fp
@@ -2016,9 +2025,11 @@ def iterate_cmd(args):
     fallback_used = False
     last_check = check_result
     for round_num in range(1, args.max_rounds + 1):
+        _log(f"\n[Round {round_num}/{args.max_rounds}] Preparing agent dispatch...")
         routing = model_catalog_mod.dispatch_preflight(config, args.agent, args.model)
         model = routing.get("selected_model")
         if not model and routing.get("required"):
+            _log(f"[Round {round_num}] Preflight failed: {routing.get('skipped')}")
             round_result = {"round": round_num, "agent_returncode": None, "attempts": [], "check": None, "routing_error": routing.get("skipped")}
             rd = rounds_dir / str(round_num)
             rd.mkdir(parents=True, exist_ok=True)
@@ -2039,6 +2050,7 @@ def iterate_cmd(args):
             autonomy=autonomy,
         )
         (rd / "prompt.txt").write_text(prompt + "\n", encoding="utf-8")
+        _log(f"[Round {round_num}] Dispatching agent '{args.agent}' using tool '{tool}' on model '{model}'...")
         attempts, final_attempt = execute_agent_attempts(
             agent_cfg,
             tool,
@@ -2059,10 +2071,13 @@ def iterate_cmd(args):
         if final_attempt and final_attempt.get("attempt", 1) > 1:
             fallback_used = True
         if not final_attempt or final_attempt["returncode"] != 0:
+            retcode = final_attempt.get('returncode') if final_attempt else 'None'
+            _log(f"[Round {round_num}] Agent execution failed (exit {retcode}).")
             round_result = {"round": round_num, "agent_returncode": final_attempt.get("returncode") if final_attempt else None, "attempts": attempts, "check": None}
             write_json(rd / "result.json", round_result)
             round_results.append(round_result)
             break
+        _log(f"[Round {round_num}] Agent completed successfully. Running verification check...")
         last_check = _run_evaluation(args.check, eval_artifacts)
         (rd / "stdout.log").write_text(final_attempt["stdout"], encoding="utf-8")
         (rd / "stderr.log").write_text(final_attempt["stderr"], encoding="utf-8")
@@ -2070,6 +2085,7 @@ def iterate_cmd(args):
         (rd / "check-stderr.log").write_text(last_check["stderr"], encoding="utf-8")
 
         if last_check["returncode"] == 0:
+            _log(f"[Round {round_num}] Verification passed! Goal achieved.")
             final_status = "completed"
             final_check_passed = True
             round_result = {
@@ -2102,6 +2118,7 @@ def iterate_cmd(args):
             "repeated_count": current_count,
         }
         if should_stop:
+            _log(f"[Round {round_num}] [ANTI-LOOP HALT] Identical blocker {fp} recurred {current_count} times (limit: {max_same_failure}). Halting to prevent quota burn.")
             final_status = "blocked"
             halt_reason = "repeated_identical_failure"
             round_result["halted"] = True
@@ -2111,6 +2128,7 @@ def iterate_cmd(args):
             round_results.append(round_result)
             break
 
+        _log(f"[Round {round_num}] Check failed (exit {last_check['returncode']}). Gap: {gap} ({gap_detail}). Fingerprint: {fp} (seen {current_count}x). Continuing loop...")
         write_json(rd / "result.json", round_result)
         round_results.append(round_result)
 
