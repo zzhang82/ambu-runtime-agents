@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ambu-runtime-agents"
 version = "1.5.1"
-description = "Ambu: Local-first autonomous agent control plane with anti-loop verification and dynamic role routing"
+description = "Supervisory controller for OpenCode coding agents with anti-loop verification and smart intent routing"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
