@@ -30,6 +30,7 @@ from runtime_agents import schedules as schedules_mod
 from runtime_agents import state as state_mod
 from runtime_agents import tools_registry as tools_registry_mod
 from runtime_agents import quota_watcher as quota_watcher_mod
+from runtime_agents import loop_engine as loop_engine_mod
 from runtime_agents.events import EventCapture
 from runtime_agents.models import TASK_STATUSES as MODEL_TASK_STATUSES
 
@@ -670,6 +671,11 @@ def normalize_iterate_args(args):
             i += 1
         elif token.startswith("--max-rounds="):
             args.max_rounds = int(token.split("=", 1)[1])
+        elif token == "--max-same-failure" and i + 1 < len(tokens):
+            args.max_same_failure = int(tokens[i + 1])
+            i += 1
+        elif token.startswith("--max-same-failure="):
+            args.max_same_failure = int(token.split("=", 1)[1])
         elif token == "--check-timeout" and i + 1 < len(tokens):
             args.check_timeout = int(tokens[i + 1])
             i += 1
@@ -1700,6 +1706,7 @@ def iterate_cmd(args):
             "goal": goal,
             "check": args.check,
             "max_rounds": args.max_rounds,
+            "max_same_failure": getattr(args, "max_same_failure", 2) or 2,
             "approval_capabilities": approvals,
             "blocked_capabilities": blocked,
             "unapproved_capabilities": unapproved,
@@ -1801,9 +1808,18 @@ def iterate_cmd(args):
         check_result = run_shell_check(args.check, run_cwd, args.check_timeout)
     except subprocess.TimeoutExpired as exc:
         check_result = {"started_at": now_iso(), "ended_at": now_iso(), "returncode": 124, "stdout": exc.stdout or "", "stderr": f"check timeout after {args.check_timeout}s"}
+    initial_fp = loop_engine_mod.fingerprint_check_failure(check_result.get("stdout", ""), check_result.get("stderr", ""), check_result.get("returncode", 1))
+    initial_gap, initial_gap_detail = loop_engine_mod.classify_gap(check_result.get("stdout", ""), check_result.get("stderr", ""), check_result.get("returncode", 1))
     (initial_dir / "check-stdout.log").write_text(check_result["stdout"], encoding="utf-8")
     (initial_dir / "check-stderr.log").write_text(check_result["stderr"], encoding="utf-8")
-    write_json(initial_dir / "result.json", {"round": 0, "type": "initial_check", "check": check_result})
+    write_json(initial_dir / "result.json", {
+        "round": 0,
+        "type": "initial_check",
+        "check": check_result,
+        "fingerprint": initial_fp,
+        "gap_classification": initial_gap,
+        "gap_detail": initial_gap_detail,
+    })
     if check_result["returncode"] == 0:
         meta = {**base_meta, "status": "completed", "ended_at": now_iso(), "rounds": 0, "final_check_passed": True}
         result = {"task_id": tid, "status": "completed", "agent": args.agent, "rounds": 0, "max_rounds": args.max_rounds, "check": args.check, "final_check_passed": True}
@@ -1816,6 +1832,14 @@ def iterate_cmd(args):
         event_capture.finish(outcome="completed", summary="Check passed immediately")
         print_json(result)
         return 0
+
+    max_same_failure = getattr(args, "max_same_failure", 2) or 2
+    failure_counts = {initial_fp: 1}
+    last_fingerprint = initial_fp
+    last_gap = initial_gap
+    last_gap_detail = initial_gap_detail
+    rounds_with_same_blocker = 1
+    halt_reason = None
 
     final_status = "failed"
     final_check_passed = False
@@ -1888,17 +1912,84 @@ Shared tool guidance: if your runtime exposes Agent Memory Bridge, Context7, or 
         (rd / "stderr.log").write_text(final_attempt["stderr"], encoding="utf-8")
         (rd / "check-stdout.log").write_text(last_check["stdout"], encoding="utf-8")
         (rd / "check-stderr.log").write_text(last_check["stderr"], encoding="utf-8")
-        round_result = {"round": round_num, "agent_returncode": final_attempt["returncode"], "attempts": attempts, "check": last_check}
-        write_json(rd / "result.json", round_result)
-        round_results.append(round_result)
+
         if last_check["returncode"] == 0:
             final_status = "completed"
             final_check_passed = True
+            round_result = {
+                "round": round_num,
+                "agent_returncode": final_attempt["returncode"],
+                "attempts": attempts,
+                "check": last_check,
+                "gap_classification": "none",
+            }
+            write_json(rd / "result.json", round_result)
+            round_results.append(round_result)
             break
 
+        fp = loop_engine_mod.fingerprint_check_failure(last_check.get("stdout", ""), last_check.get("stderr", ""), last_check["returncode"])
+        gap, gap_detail = loop_engine_mod.classify_gap(last_check.get("stdout", ""), last_check.get("stderr", ""), last_check["returncode"])
+        should_stop, failure_counts, current_count = loop_engine_mod.should_halt(fp, failure_counts, max_same_failure=max_same_failure)
+        last_fingerprint = fp
+        last_gap = gap
+        last_gap_detail = gap_detail
+        rounds_with_same_blocker = current_count
+
+        round_result = {
+            "round": round_num,
+            "agent_returncode": final_attempt["returncode"],
+            "attempts": attempts,
+            "check": last_check,
+            "fingerprint": fp,
+            "gap_classification": gap,
+            "gap_detail": gap_detail,
+            "repeated_count": current_count,
+        }
+        if should_stop:
+            final_status = "blocked"
+            halt_reason = "repeated_identical_failure"
+            round_result["halted"] = True
+            round_result["halt_reason"] = halt_reason
+            event_capture.record_friction(f"blocked_anti_loop:{gap}:{fp}")
+            write_json(rd / "result.json", round_result)
+            round_results.append(round_result)
+            break
+
+        write_json(rd / "result.json", round_result)
+        round_results.append(round_result)
+
     rounds_count = len(round_results)
-    meta = {**base_meta, "status": final_status, "ended_at": now_iso(), "rounds": rounds_count, "final_check_passed": final_check_passed, "fallback_used": fallback_used}
-    result = {"task_id": tid, "status": final_status, "agent": args.agent, "rounds": rounds_count, "max_rounds": args.max_rounds, "check": args.check, "final_check_passed": final_check_passed}
+    meta = {
+        **base_meta,
+        "status": final_status,
+        "ended_at": now_iso(),
+        "rounds": rounds_count,
+        "final_check_passed": final_check_passed,
+        "fallback_used": fallback_used,
+        "max_same_failure": max_same_failure,
+        "gap_classification": last_gap,
+        "gap_detail": last_gap_detail,
+        "blocker_fingerprint": last_fingerprint,
+        "rounds_with_same_blocker": rounds_with_same_blocker,
+    }
+    result = {
+        "task_id": tid,
+        "status": final_status,
+        "agent": args.agent,
+        "rounds": rounds_count,
+        "max_rounds": args.max_rounds,
+        "max_same_failure": max_same_failure,
+        "check": args.check,
+        "final_check_passed": final_check_passed,
+        "gap_classification": last_gap,
+        "gap_detail": last_gap_detail,
+        "blocker_fingerprint": last_fingerprint,
+        "rounds_with_same_blocker": rounds_with_same_blocker,
+    }
+    if halt_reason:
+        meta["halt_reason"] = halt_reason
+        result["halt_reason"] = halt_reason
+
     if getattr(args, "tail", None) is not None:
         result["check_stdout_tail"] = tail_lines(last_check.get("stdout", ""), args.tail)
         result["check_stderr_tail"] = tail_lines(last_check.get("stderr", ""), args.tail)
@@ -1907,7 +1998,11 @@ Shared tool guidance: if your runtime exposes Agent Memory Bridge, Context7, or 
     append_task(meta)
     event_capture.finish(outcome=final_status, summary=f"Iterate finished with {final_status} after {rounds_count} rounds")
     print_json(result)
-    return 0 if final_check_passed else 1
+    if final_check_passed:
+        return 0
+    if final_status == "blocked":
+        return 3
+    return 1
 
 
 def submit_cmd(args):
@@ -5436,6 +5531,7 @@ def main():
     iterate.add_argument("goal", nargs=argparse.REMAINDER)
     iterate.add_argument("--check")
     iterate.add_argument("--max-rounds", type=int, default=5)
+    iterate.add_argument("--max-same-failure", type=int, default=2)
     iterate.add_argument("--model")
     iterate.add_argument("--workspace")
     iterate.add_argument("--no-memory", action="store_true")

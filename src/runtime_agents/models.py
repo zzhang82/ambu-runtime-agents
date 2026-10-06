@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
-TASK_STATUSES = {"queued", "running", "completed", "failed", "approval_required", "cancelled", "retrying"}
+TASK_STATUSES = {"queued", "running", "completed", "failed", "blocked", "approval_required", "cancelled", "retrying"}
 QUEUE_STATUSES = {"queued", "running", "completed", "failed", "approval_required", "cancelled", "retrying"}
 PLAN_STATUSES = {"draft", "approved", "running", "blocked", "completed"}
 SCHEDULE_STATUSES = {"enabled", "disabled", "removed", "failed"}
