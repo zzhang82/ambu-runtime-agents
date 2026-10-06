@@ -32,17 +32,15 @@ def make_env(base_dir: Path):
         encoding="utf-8",
     )
     agents = {
-        "models": {"primary": "gpt-5.5", "fallbacks": ["claude-sonnet-4-6", "gpt-5.4"], "cheap": "gpt-5.5"},
+        "models": {"primary": "local/gpt-5.5", "fallbacks": ["local/gpt-5.4"], "cheap": "local/gpt-5.4-mini"},
         "amb": {"mode": "mcp_stdio", "command": sys.executable, "args": ["-c", "print('ok')"]},
         "tools": {
-            "codex": {"command": str(FIXTURES / "fake-codex-ok")},
-            "claude": {"command": str(FIXTURES / "fake-claude-ok")},
-            "gemini": {"command": str(FIXTURES / "fake-gemini-ok")},
+            "opencode": {"command": str(FIXTURES / "fake-opencode-ok")},
         },
         "agents": {
-            "planner": {"tool": "codex", "model": "gpt-5.5", "autonomy": "read_only", "approval_required": ["workspace_write", "git_push", "deploy"]},
-            "coder": {"tool": "codex", "model": "gpt-5.5", "autonomy": "workspace_write", "approval_required": ["git_push", "deploy"]},
-            "reviewer": {"tool": "claude", "model": "gpt-5.5", "autonomy": "read_only", "approval_required": ["workspace_write", "git_push", "deploy"]},
+            "planner": {"tool": "opencode", "model": "local/gpt-5.5", "opencode_agent": "plan", "autonomy": "read_only", "approval_required": ["workspace_write", "git_push", "deploy"]},
+            "coder": {"tool": "opencode", "model": "local/gpt-5.5", "opencode_agent": "build", "autonomy": "workspace_write", "approval_required": ["git_push", "deploy"]},
+            "reviewer": {"tool": "opencode", "model": "local/gpt-5.5", "opencode_agent": "reviewer", "autonomy": "read_only", "approval_required": ["workspace_write", "git_push", "deploy"]},
         },
         "capability_rules": {},
     }

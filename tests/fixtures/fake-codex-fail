@@ -1,3 +1,0 @@
-#!/usr/bin/env bash
-printf 'normal failure\n' >&2
-exit 1

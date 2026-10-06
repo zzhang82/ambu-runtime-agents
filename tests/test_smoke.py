@@ -18,6 +18,22 @@ def run_cli(args, env):
     return subprocess.run(cmd, text=True, capture_output=True, env=env, cwd=ROOT)
 
 
+def add_crew_agents_to_config(config_path: Path):
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    config["agents"].update(
+        {
+            "jules": {"tool": "opencode", "model": "local/gpt-5.4-mini", "opencode_agent": "jules", "autonomy": "read_only", "approval_required": ["workspace_write"]},
+            "eli": {"tool": "opencode", "model": "local/gpt-5.5", "opencode_agent": "eli", "autonomy": "workspace_write", "approval_required": ["git_push", "deploy"]},
+            "ren": {"tool": "opencode", "model": "local/gpt-5.5", "opencode_agent": "ren", "autonomy": "read_only", "approval_required": ["workspace_write"]},
+            "lucien": {"tool": "opencode", "model": "local/gpt-5.4-mini", "opencode_agent": "lucien", "autonomy": "read_only", "approval_required": ["workspace_write"]},
+            "klaus": {"tool": "opencode", "model": "local/gpt-5.5", "opencode_agent": "klaus-validator", "autonomy": "read_only", "approval_required": ["workspace_write"]},
+            "bob": {"tool": "opencode", "model": "local/gpt-5.4-mini", "opencode_agent": "general", "autonomy": "read_only", "approval_required": ["workspace_write"]},
+            "cole-manager": {"tool": "opencode", "model": "local/gpt-5.5", "opencode_agent": "general", "autonomy": "read_only", "approval_required": ["workspace_write", "git_push", "deploy"]},
+        }
+    )
+    config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+
+
 def make_env(base_dir: Path):
     config_home = base_dir / "config"
     state_home = base_dir / "state"
@@ -29,37 +45,39 @@ def make_env(base_dir: Path):
         encoding="utf-8",
     )
     agents = {
-        "models": {"primary": "gpt-5.5", "fallbacks": ["claude-sonnet-4-6", "gpt-5.4"], "cheap": "gpt-5.5"},
+        "models": {"primary": "local/gpt-5.5", "fallbacks": ["local/gpt-5.4"], "cheap": "local/gpt-5.4-mini"},
         "amb": {"mode": "mcp_stdio", "command": sys.executable, "args": ["-c", "print('ok')"]},
         "tools": {
-            "codex": {"command": str(FIXTURES / "fake-codex-ok")},
-            "claude": {"command": str(FIXTURES / "fake-claude-ok")},
-            "gemini": {"command": str(FIXTURES / "fake-gemini-ok")},
+            "opencode": {"command": str(FIXTURES / "fake-opencode-ok")},
         },
         "agents": {
             "coder": {
-                "tool": "codex",
-                "model": "gpt-5.5",
-                "fallback_profiles": ["sonnet", "gpt54"],
+                "tool": "opencode",
+                "model": "local/gpt-5.5",
+                "opencode_agent": "build",
+                "fallback_profiles": ["gpt54"],
                 "autonomy": "workspace_write",
                 "approval_required": ["git_push", "deploy", "secrets", "global_config", "destructive_delete", "global_install"],
             },
             "reviewer": {
-                "tool": "claude",
-                "model": "gpt-5.5",
-                "fallback_profiles": ["sonnet", "gpt54"],
+                "tool": "opencode",
+                "model": "local/gpt-5.5",
+                "opencode_agent": "reviewer",
+                "fallback_profiles": ["gpt54"],
                 "autonomy": "read_only",
                 "approval_required": ["workspace_write", "git_push", "deploy"],
             },
             "planner": {
-                "tool": "codex",
-                "model": "gpt-5.5",
+                "tool": "opencode",
+                "model": "local/gpt-5.5",
+                "opencode_agent": "plan",
                 "autonomy": "read_only",
                 "approval_required": ["workspace_write", "git_push", "deploy"],
             },
             "cheap": {
-                "tool": "gemini",
-                "model": "gpt-5.5",
+                "tool": "opencode",
+                "model": "local/gpt-5.4-mini",
+                "opencode_agent": "general",
                 "autonomy": "read_only",
                 "approval_required": ["workspace_write", "git_push", "deploy", "global_config"],
             },
@@ -205,6 +223,59 @@ class RuntimeAgentsSmokeTests(unittest.TestCase):
         payload = json.loads(proc.stdout)
         self.assertEqual(payload["version"], "1.5.1")
         self.assertEqual(payload["contract"], "agentctl-v1.5.1")
+
+    def test_logs_missing_stdout_and_stderr_are_machine_readable(self):
+        task_id = "missing-log-task"
+        run_dir = Path(self.env["RUNTIME_AGENTS_STATE_HOME"]) / "runs" / task_id
+        run_dir.mkdir(parents=True)
+        (Path(self.env["RUNTIME_AGENTS_STATE_HOME"]) / "tasks.jsonl").write_text(
+            json.dumps({"task_id": task_id, "agent": "planner", "run_dir": str(run_dir)}) + "\n",
+            encoding="utf-8",
+        )
+
+        for file_name, filename in (("stdout", "stdout.log"), ("stderr", "stderr.log")):
+            with self.subTest(file_name=file_name):
+                proc = run_cli(["logs", task_id, "--file", file_name, "--json"], self.env)
+                self.assertEqual(proc.returncode, 1, proc.stderr)
+                self.assertNotIn("Traceback", proc.stderr)
+                payload = json.loads(proc.stdout)
+                self.assertEqual(payload["task_id"], task_id)
+                self.assertEqual(payload["file"], file_name)
+                self.assertEqual(payload["path"], str(run_dir / filename))
+                self.assertFalse(payload["exists"])
+                self.assertEqual(payload["text"], "")
+
+    def test_logs_missing_file_returns_clean_human_error(self):
+        task_id = "missing-human-log-task"
+        run_dir = Path(self.env["RUNTIME_AGENTS_STATE_HOME"]) / "runs" / task_id
+        run_dir.mkdir(parents=True)
+        (Path(self.env["RUNTIME_AGENTS_STATE_HOME"]) / "tasks.jsonl").write_text(
+            json.dumps({"task_id": task_id, "agent": "planner", "run_dir": str(run_dir)}) + "\n",
+            encoding="utf-8",
+        )
+
+        proc = run_cli(["logs", task_id, "--file", "stdout"], self.env)
+        self.assertEqual(proc.returncode, 1)
+        self.assertEqual(proc.stdout, "")
+        self.assertIn("Log file not found:", proc.stderr)
+        self.assertNotIn("Traceback", proc.stderr)
+
+    def test_logs_existing_file_preserves_json_contract(self):
+        task_id = "existing-log-task"
+        run_dir = Path(self.env["RUNTIME_AGENTS_STATE_HOME"]) / "runs" / task_id
+        run_dir.mkdir(parents=True)
+        (run_dir / "stdout.log").write_text("READY\n", encoding="utf-8")
+        (Path(self.env["RUNTIME_AGENTS_STATE_HOME"]) / "tasks.jsonl").write_text(
+            json.dumps({"task_id": task_id, "agent": "planner", "run_dir": str(run_dir)}) + "\n",
+            encoding="utf-8",
+        )
+
+        proc = run_cli(["logs", task_id, "--json"], self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(
+            json.loads(proc.stdout),
+            {"task_id": task_id, "file": "stdout", "path": str(run_dir / "stdout.log"), "text": "READY\n"},
+        )
 
     def test_guardrail_commands(self):
         listed = run_cli(["guardrail", "list", "--json"], self.env)
@@ -365,6 +436,34 @@ class RuntimeAgentsSmokeTests(unittest.TestCase):
 
         self.assertEqual(json.loads(run_cli(["queue", "--json"], self.env).stdout), [])
 
+
+    def test_attempt_text_fields_decode_timeout_bytes(self):
+        from runtime_agents.cli import normalize_attempt_text_fields
+
+        attempts = [
+            {
+                "attempt": 1,
+                "returncode": 124,
+                "stdout": b"partial stdout bytes",
+                "stderr": b"partial stderr bytes",
+            }
+        ]
+        final = attempts[0]
+
+        normalized_attempts, normalized_final = normalize_attempt_text_fields(attempts, final)
+
+        self.assertEqual(normalized_attempts[0]["stdout"], "partial stdout bytes")
+        self.assertEqual(normalized_attempts[0]["stderr"], "partial stderr bytes")
+        self.assertIs(normalized_attempts[0], normalized_final)
+
+    def test_fallback_profiles_keep_opencode_provider_prefix(self):
+        from runtime_agents.cli import MODEL_FALLBACK_PROFILES
+
+        self.assertTrue(MODEL_FALLBACK_PROFILES)
+        for alias, model in MODEL_FALLBACK_PROFILES.items():
+            self.assertTrue(str(alias))
+            self.assertTrue(str(model).startswith("local/"), model)
+
     def test_runbook_commands(self):
         listed = run_cli(["runbook", "list", "--json"], self.env)
         self.assertEqual(listed.returncode, 0, listed.stderr)
@@ -489,6 +588,200 @@ class RuntimeAgentsSmokeTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         payload = json.loads(proc.stdout)
         self.assertTrue(payload["ok"])
+
+    def test_company_status_reports_missing_crew_agents_without_side_effects(self):
+        state_home = Path(self.env["RUNTIME_AGENTS_STATE_HOME"])
+        side_effect_paths = [state_home / "runs", state_home / "plans", state_home / "queue.jsonl", state_home / "schedules.jsonl", state_home / "tasks.jsonl"]
+        self.assertTrue(all(not path.exists() for path in side_effect_paths))
+
+        proc = run_cli(["company-status", "--json"], self.env)
+        self.assertEqual(proc.returncode, 2, proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertEqual(payload["mode"], "v2_activation_ready")
+        self.assertEqual(payload["status"], "not_ready")
+        warnings = {item["code"]: item for item in payload["warnings"]}
+        self.assertIn("missing_required_crew_agents", warnings)
+        self.assertIn("jules", warnings["missing_required_crew_agents"]["detail"])
+        self.assertTrue(all(not path.exists() for path in side_effect_paths))
+        self.assertEqual(json.loads(run_cli(["queue", "--json"], self.env).stdout), [])
+
+    def test_company_status_ready_with_crew_agents_registered(self):
+        config_path = Path(self.env["RUNTIME_AGENTS_CONFIG_HOME"]) / "agents.yaml"
+        add_crew_agents_to_config(config_path)
+
+        proc = run_cli(["company-status", "--json"], self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertEqual(payload["status"], "ready")
+        self.assertTrue(payload["crew_agents"]["klaus"]["registered"])
+        self.assertEqual(payload["crew_agents"]["eli"]["autonomy"], "workspace_write")
+        self.assertEqual(json.loads(run_cli(["queue", "--json"], self.env).stdout), [])
+
+    def test_company_dispatch_declines_simple_question_without_side_effects(self):
+        state_home = Path(self.env["RUNTIME_AGENTS_STATE_HOME"])
+        side_effect_paths = [state_home / "runs", state_home / "plans", state_home / "queue.jsonl", state_home / "schedules.jsonl", state_home / "tasks.jsonl"]
+        proc = run_cli(["company-dispatch", "what", "is", "2+2", "--dry-run", "--json"], self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertFalse(payload["trigger"])
+        self.assertEqual(payload["execution"], "dry_run_only")
+        self.assertEqual(payload["workflow"], [])
+        self.assertIn("simple_question", payload["classification"])
+        self.assertTrue(all(not path.exists() for path in side_effect_paths))
+
+    def test_company_dispatch_runtime_bug_routes_lucien_eli_ren_klaus(self):
+        proc = run_cli(["company-dispatch", "fix", "failing", "runtime-agent", "selftest", "after", "config", "change", "--dry-run", "--json"], self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertTrue(payload["trigger"])
+        self.assertEqual(payload["classification"], "runtime_debugging")
+        self.assertEqual([step["agent"] for step in payload["workflow"]], ["lucien", "eli", "ren", "klaus"])
+        self.assertEqual(payload["activation"]["status"], "blocked")
+        self.assertIn("dry_run_required", payload["non_goals"])
+
+    def test_company_dispatch_unclear_feature_routes_jules_then_cole(self):
+        proc = run_cli(["company-dispatch", "plan", "a", "better", "company", "workflow", "for", "crew", "--dry-run", "--json"], self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertTrue(payload["trigger"])
+        self.assertEqual(payload["classification"], "scope_planning")
+        self.assertEqual([step["agent"] for step in payload["workflow"]], ["jules", "cole-manager"])
+
+    def test_company_dispatch_stock_request_routes_bob_with_non_advice_boundary(self):
+        proc = run_cli(["company-dispatch", "should", "I", "buy", "more", "NVDA", "stock", "--dry-run", "--json"], self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertTrue(payload["trigger"])
+        self.assertEqual(payload["classification"], "investment_research")
+        self.assertEqual([step["agent"] for step in payload["workflow"]], ["bob", "ren", "klaus", "cole-manager"])
+        self.assertIn("non_advice_boundary", payload["boundaries"])
+
+    def test_inspect_exposes_resolved_opencode_binding(self):
+        proc = run_cli(["inspect", "planner"], self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertEqual(payload["resolved_opencode_agent"], "plan")
+        self.assertIn("binding_fidelity", payload)
+
+    def test_company_activate_dry_run_blocks_until_queue_clean_and_no_side_effects(self):
+        state_home = Path(self.env["RUNTIME_AGENTS_STATE_HOME"])
+        queue_path = state_home / "queue.jsonl"
+        queue_path.parent.mkdir(parents=True, exist_ok=True)
+        queue_path.write_text(json.dumps({"queue_id": "q1", "status": "queued", "workspace": "test-ws", "cwd": "/tmp/opencode", "goal": "selftest validation"}) + "\n", encoding="utf-8")
+        proc = run_cli(["company-activate", "--dry-run", "--json"], self.env)
+        self.assertEqual(proc.returncode, 2, proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertEqual(payload["status"], "blocked")
+        self.assertIn("existing_queued_work", payload["blockers"])
+        self.assertEqual(payload["execution"], "dry_run_only")
+        self.assertFalse((state_home / "schedules.jsonl").exists())
+
+    def test_company_activate_dry_run_ready_after_queue_clean_and_crew_registered(self):
+        config_path = Path(self.env["RUNTIME_AGENTS_CONFIG_HOME"]) / "agents.yaml"
+        add_crew_agents_to_config(config_path)
+        proc = run_cli(["company-activate", "--dry-run", "--json"], self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertEqual(payload["status"], "ready")
+        self.assertEqual(payload["execution"], "dry_run_only")
+        self.assertFalse(payload["would_start_daemon"])
+        self.assertFalse(payload["would_create_schedules"])
+
+    def test_company_activate_without_live_is_dry_run_safe(self):
+        config_path = Path(self.env["RUNTIME_AGENTS_CONFIG_HOME"]) / "agents.yaml"
+        add_crew_agents_to_config(config_path)
+        proc = run_cli(["company-activate", "--json"], self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertEqual(payload["status"], "ready")
+        self.assertEqual(payload["execution"], "dry_run_only")
+        self.assertFalse(payload["would_start_daemon"])
+        self.assertFalse(payload["would_create_schedules"])
+
+    def test_company_activate_live_requires_yes(self):
+        config_path = Path(self.env["RUNTIME_AGENTS_CONFIG_HOME"]) / "agents.yaml"
+        add_crew_agents_to_config(config_path)
+        proc = run_cli(["company-activate", "--live", "--json"], self.env)
+        self.assertEqual(proc.returncode, 2, proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertEqual(payload["status"], "blocked")
+        self.assertIn("live_activation_requires_yes", payload["blockers"])
+        self.assertEqual(payload["execution"], "none")
+
+    def test_company_activate_live_creates_manager_schedule_but_does_not_start_daemon_without_flag(self):
+        config_path = Path(self.env["RUNTIME_AGENTS_CONFIG_HOME"]) / "agents.yaml"
+        add_crew_agents_to_config(config_path)
+        workspaces_path = Path(self.env["RUNTIME_AGENTS_CONFIG_HOME"]) / "workspaces.yaml"
+        workspaces_path.write_text(yaml.safe_dump({"runtime-agents": {"path": str(ROOT), "memory_namespace": "project:runtime-agents"}}, sort_keys=False), encoding="utf-8")
+        proc = run_cli(["company-activate", "--live", "--yes", "--json"], self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertEqual(payload["status"], "activated")
+        self.assertTrue(payload["would_create_schedules"])
+        self.assertFalse(payload["would_start_daemon"])
+        self.assertFalse(payload["daemon"]["started"])
+        schedules = json.loads(run_cli(["schedule", "list", "--json"], self.env).stdout)
+        self.assertEqual(len(schedules), 1)
+        self.assertEqual(schedules[0]["agent"], "cole-manager")
+        self.assertEqual(schedules[0]["created_from"], "company_activate")
+
+    def test_daemon_status_uses_fresh_heartbeat_when_pidfile_race_occurs(self):
+        state_home = Path(self.env["RUNTIME_AGENTS_STATE_HOME"])
+        heartbeat = state_home / "agentd.heartbeat.json"
+        heartbeat.write_text(json.dumps({"pid": os.getpid(), "stage": "run_next", "updated_at": "2999-01-01T00:00:00+00:00"}) + "\n", encoding="utf-8")
+        proc = run_cli(["daemon-status", "--json"], self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertTrue(payload["running"])
+        self.assertEqual(payload["pid"], os.getpid())
+        self.assertTrue(payload["heartbeat"]["fresh"])
+
+    def test_daemon_status_ignores_stale_heartbeat_without_pidfile(self):
+        state_home = Path(self.env["RUNTIME_AGENTS_STATE_HOME"])
+        heartbeat = state_home / "agentd.heartbeat.json"
+        heartbeat.write_text(json.dumps({"pid": os.getpid(), "stage": "run_next", "updated_at": "2000-01-01T00:00:00+00:00"}) + "\n", encoding="utf-8")
+        proc = run_cli(["daemon-status", "--json"], self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertFalse(payload["running"])
+        self.assertIsNone(payload["pid"])
+        self.assertFalse(payload["heartbeat"]["fresh"])
+
+    def test_company_activate_live_blocks_with_queue_even_with_yes(self):
+        config_path = Path(self.env["RUNTIME_AGENTS_CONFIG_HOME"]) / "agents.yaml"
+        add_crew_agents_to_config(config_path)
+        state_home = Path(self.env["RUNTIME_AGENTS_STATE_HOME"])
+        queue_path = state_home / "queue.jsonl"
+        queue_path.write_text(json.dumps({"queue_id": "q1", "status": "queued", "workspace": "test-ws", "cwd": "/tmp/opencode", "goal": "real work"}) + "\n", encoding="utf-8")
+        proc = run_cli(["company-activate", "--live", "--yes", "--json"], self.env)
+        self.assertEqual(proc.returncode, 2, proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertIn("existing_queued_work", payload["blockers"])
+        self.assertEqual(payload["execution"], "none")
+
+    def test_company_dispatch_runtime_bug_can_emit_plan_without_enqueuing(self):
+        config_path = Path(self.env["RUNTIME_AGENTS_CONFIG_HOME"]) / "agents.yaml"
+        add_crew_agents_to_config(config_path)
+        state_home = Path(self.env["RUNTIME_AGENTS_STATE_HOME"])
+        proc = run_cli(["company-dispatch", "fix", "runtime", "selftest", "--dry-run", "--json"], self.env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertEqual([step["agent"] for step in payload["workflow"]], ["lucien", "eli", "ren", "klaus"])
+        self.assertFalse((state_home / "queue.jsonl").exists())
+        self.assertFalse((state_home / "runs").exists())
+
+    def test_company_activate_enforces_queue_then_future_gate_order(self):
+        config_path = Path(self.env["RUNTIME_AGENTS_CONFIG_HOME"]) / "agents.yaml"
+        add_crew_agents_to_config(config_path)
+        state_home = Path(self.env["RUNTIME_AGENTS_STATE_HOME"])
+        queue_path = state_home / "queue.jsonl"
+        queue_path.parent.mkdir(parents=True, exist_ok=True)
+        queue_path.write_text(json.dumps({"queue_id": "q1", "status": "queued", "workspace": "test-ws", "cwd": "/tmp/opencode", "goal": "real work"}) + "\n", encoding="utf-8")
+        proc = run_cli(["company-activate", "--json"], self.env)
+        self.assertEqual(proc.returncode, 2, proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertIn("existing_queued_work", payload["blockers"])
+        self.assertIn("existing_queued_work", payload["blockers"])
 
     def test_smoke_json(self):
         proc = run_cli(["smoke", "--json"], self.env)

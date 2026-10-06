@@ -1,6 +1,6 @@
 # Backlog: Docs Roadmap and Self-Improvement Experimental Quarantine
 
-Status: Done for initial baseline. Merged in `5686e5c Quarantine self-improvement prototype in docs`.
+Status: Done for initial baseline. Merged in `5686e5c Quarantine self-improvement prototype in docs`; later cleanup narrowed active self-improvement ingestion to OpenCode and runtime-agents state.
 
 ## Objective
 
@@ -10,7 +10,7 @@ Align docs with ADR 0001 and quarantine the older multi-runtime self-improvement
 
 - Trusted baseline is `runtime-agents v1.5.1` / `agentctl-v1.5.1`.
 - README and CHANGELOG still document broad self-improvement work from the untrusted `v1.6` direction.
-- `self_improvement/runtime-self-improve.py` contains multi-runtime ingestion for opencode, Claude/CCR, Codex, Gemini, and runtime-agents.
+- `self_improvement/runtime-self-improve.py` now keeps active ingestion to OpenCode and runtime-agents state; older direct provider CLI ingestion is historical context only.
 - That script also includes mutating SkillOps behavior: staging, approvals, deploy, lock update, rollback, scheduler, and NAS backup paths.
 - ADR 0001 accepts the OpenCode / Telegram / AMB+AMH pivot and marks old multi-runtime self-improvement as experimental.
 - SkillOps 2P Restore Drill is suspended and should be revisited after the pivot tracks reach an initial baseline.
@@ -29,7 +29,7 @@ Align docs with ADR 0001 and quarantine the older multi-runtime self-improvement
 - Do not delete `self_improvement/runtime-self-improve.py`.
 - Do not implement new Learning Sessions.
 - Do not restart Watchers or NAS/Home work.
-- Do not promote direct runtime adapters as primary path.
+- Do not promote direct provider-specific runtime adapters as primary path.
 - Do not treat AMB/project memory as release authority.
 
 ## Phases
@@ -81,7 +81,7 @@ Align docs with ADR 0001 and quarantine the older multi-runtime self-improvement
 ### Phase 5 - Promotion checkpoint
 
 - Decide by ADR whether any self-improvement concept graduates from quarantine.
-- Decide whether direct runtime adapters are removed, wrapped, or kept legacy.
+- Keep direct runtime adapters removed unless a future ADR reintroduces them.
 - Revisit suspended 2P Restore Drill.
 
 ## Validation

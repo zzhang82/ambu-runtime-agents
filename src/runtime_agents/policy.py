@@ -13,6 +13,12 @@ TRANSIENT_MARKERS = (
     "gateway unavailable",
     "connection reset",
     "resource exhausted",
+    "resource has been exhausted",
+    "cooling down",
+    "all credentials for model",
+    "unexpected server error",
+    "internal server error",
+    '"name": "UnknownError"',
 )
 
 CAPABILITY_PATTERNS = {

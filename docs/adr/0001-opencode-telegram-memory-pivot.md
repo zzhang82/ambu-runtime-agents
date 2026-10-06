@@ -12,13 +12,13 @@ Accepted
 
 `runtime-agents` reached a trusted `v1.5.1` baseline after reconciling version drift and completing an initial burn-in pass.
 
-The current repo still contains earlier experimental `v1.6`-style self-improvement work:
+The current repo used to contain earlier experimental `v1.6`-style self-improvement work:
 
-- multi-runtime event ingestion for opencode, Claude/CCR, Codex, Gemini, and runtime-agents
+- multi-runtime event ingestion for OpenCode, direct provider CLIs, and runtime-agents
 - scheduling / scheduler commands for self-improvement scans
 - SkillOps governance, lifecycle, eval, backup, and restore concepts
 
-This work is useful context, but it also creates architectural pressure. The project has to balance several direct runtime integrations, each with different log formats, model semantics, permissions, and fidelity levels. That makes the system heavier than the actual product goal.
+This work was useful context, but it also created architectural pressure. The project had to balance several direct runtime integrations, each with different log formats, model semantics, permissions, and fidelity levels. That made the system heavier than the actual product goal.
 
 The product direction is shifting toward a simpler layered architecture:
 
@@ -31,7 +31,7 @@ human
                     <-> AMB governed durable memory substrate
 ```
 
-The desired system is a persistent agent loop, not only a local CLI toolkit. Telegram is the practical always-on human channel. OpenCode already provides multi-model execution support, so `runtime-agents` does not need to directly balance Codex, Claude, Gemini, and other runtimes as first-class execution backends.
+The desired system is a persistent agent loop, not only a local CLI toolkit. Telegram is the practical always-on human channel. OpenCode already provides multi-model execution support, so `runtime-agents` does not need to directly balance provider-specific runtimes as first-class execution backends.
 
 AMB is expected to remain the governed durable memory substrate for identity, persona, policy, belief records, signals, handoffs, and MCP-compatible memory access. Agent-Memory-Harness is expected to become the workflow and governance layer around AMB: packet compilation, failure tracking, readiness checks, belief proposals, promotion pipelines, and future adapter contracts.
 
@@ -48,7 +48,7 @@ runtime-agents owns orchestration and policy.
 opencode owns model/runtime execution.
 ```
 
-Direct Codex, Claude, Gemini, and other runtime adapters should no longer be the main architectural direction. If a model/provider needs to be used, prefer routing it through OpenCode first.
+Direct provider-specific runtime adapters are not the main architectural direction. If a model/provider needs to be used, route it through OpenCode first.
 
 Direct runtime integration may still be considered later only when OpenCode cannot expose a required capability.
 
@@ -130,7 +130,7 @@ But the core roadmap should not continue to expand the old multi-runtime adapter
 ### Risks
 
 - Moving too fast on Telegram could bypass the guardrail model if the command/execution boundary is not kept explicit.
-- Dropping direct runtime adapters too early could lose useful telemetry until OpenCode exposes equivalent data.
+- Dropping direct runtime adapters could lose useful telemetry until OpenCode exposes equivalent data.
 - Memory responsibilities could become confused unless AMB substrate, AMH workflow/governance, and runtime local state are clearly separated.
 
 ## Immediate Implications
@@ -173,8 +173,11 @@ track/memory-amh-amb
 
 track/opencode-runtime
   -> merged as 5025474 Characterize OpenCode runtime substrate
-  -> characterized current direct adapters as legacy-direct and recorded OpenCode as intended substrate
-  -> no live OpenCode execution hook was merged in this baseline
+  -> characterized old direct adapters and recorded OpenCode as intended substrate
+
+direct runtime cleanup
+  -> removed live direct provider CLI execution and self-improvement ingestion adapters after the initial baseline
+  -> OpenCode is now the supported live execution substrate
 
 track/docs-roadmap-self-improvement
   -> merged as 5686e5c Quarantine self-improvement prototype in docs
@@ -197,8 +200,8 @@ The accepted split work proceeded by track:
 
 ```text
 track/opencode-runtime
-  - make OpenCode the explicit execution substrate
-  - deprecate or quarantine direct runtime adapters
+  - made OpenCode the explicit execution substrate
+  - removed live direct provider CLI execution paths after baseline validation
 
 track/telegram-main-agent
   - evolve agentbot from slash-command control to main-agent conversation loop

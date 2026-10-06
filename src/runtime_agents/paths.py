@@ -42,6 +42,7 @@ SCHEDULES_JSONL = STATE_DIR / "schedules.jsonl"
 PAUSED_FILE = STATE_DIR / "paused"
 AGENTD_PID = STATE_DIR / "agentd.pid"
 AGENTD_LOG = STATE_DIR / "agentd.log"
+AGENTD_HEARTBEAT = STATE_DIR / "agentd.heartbeat.json"
 TELEGRAM_OFFSET = STATE_DIR / "telegram.offset"
 TELEGRAM_LOG = STATE_DIR / "telegram.log"
 

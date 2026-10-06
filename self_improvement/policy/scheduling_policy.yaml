@@ -10,19 +10,10 @@ global_rules:
   require_approval_for_mutation: true
 
 runtimes:
-  claude_ccr:
-    fidelity: high
-    enabled: true
   opencode:
     fidelity: high
     enabled: true
   runtime_agents:
-    fidelity: high
-    enabled: true
-  codex:
-    fidelity: high
-    enabled: true
-  gemini:
     fidelity: high
     enabled: true
 

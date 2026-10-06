@@ -3,7 +3,7 @@
   "type": "object",
   "properties": {
     "schema_version": { "type": "string", "const": "0.1" },
-    "runtime": { "type": "string", "enum": ["opencode", "claude", "ccr", "codex", "gemini", "runtime-agents"] },
+    "runtime": { "type": "string", "enum": ["opencode", "runtime-agents"] },
     "session_id": { "type": "string" },
     "run_id": { "type": "string" },
     "timestamp_start": { "type": "string", "format": "date-time" },

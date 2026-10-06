@@ -99,7 +99,7 @@ class RegistryManager:
             data["skills"][skill_name] = {
                 "version": "0.1.0",
                 "last_verified_at": None,
-                "supported_runtimes": ["opencode", "claude", "codex", "gemini"],
+                "supported_runtimes": ["opencode", "runtime-agents"],
                 "usage": {"last_seen_at": None, "invocation_count_30d": 0, "recommendation_count_30d": 0},
                 "replacement": {"replaced_by": None, "reason": None},
                 "deprecation": {"status": "active", "deprecated_at": None, "archive_after": None, "approval_id": None}
@@ -120,156 +120,9 @@ class RegistryManager:
 
 # --- ADAPTERS ---
 
-class ClaudeCCRAdapter:
-    def __init__(self, history_path="~/.claude/history.jsonl", projects_base="~/.claude/projects"):
-        self.history_path = os.path.expanduser(history_path)
-        self.projects_base = os.path.expanduser(projects_base)
-
-    def normalize(self, limit=50):
-        events = []
-        if not os.path.exists(self.history_path):
-            return events
-        with open(self.history_path, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
-            for line in lines[-limit:]:
-                try:
-                    data = json.loads(line)
-                    sid = data.get("sessionId")
-                    project_path = data.get("project", "")
-                    session_file = os.path.join(self.projects_base, project_path.replace("/", "-"), f"{sid}.jsonl")
-                    tools_used = []
-                    if os.path.exists(session_file):
-                        with open(session_file, 'r', encoding='utf-8') as sf:
-                            for sline in sf:
-                                try:
-                                    sdata = json.loads(sline)
-                                    if sdata.get("type") == "assistant":
-                                        for item in sdata.get("message", {}).get("content", []):
-                                            if isinstance(item, dict) and item.get("type") == "tool_use":
-                                                tools_used.append(item.get("name"))
-                                except Exception: continue
-                    ts = data.get('timestamp')
-                    ts_iso = datetime.fromtimestamp(ts/1000).isoformat() + "Z" if ts else None
-                    events.append({
-                        "schema_version": "0.1", "runtime": "claude", "session_id": sid,
-                        "run_id": f"run_{ts}", "timestamp_start": ts_iso, "timestamp_end": ts_iso,
-                        "workspace": project_path, "user_goal": data.get("display"), "outcome": "success", 
-                        "tools_used": sorted(list(set(tools_used))), "tool_sequence": tools_used,
-                        "summary": "Imported from Claude history"
-                    })
-                except Exception: continue
-        return events
-
-class GeminiAdapter:
-    def __init__(self, base_path="~/.gemini/tmp"):
-        self.base_path = os.path.expanduser(base_path)
-
-    def normalize(self, limit=50):
-        events = []
-        if not os.path.exists(self.base_path): return events
-        files = []
-        for root, _, filenames in os.walk(self.base_path):
-            for f in filenames:
-                if f.startswith("session-") and f.endswith(".json"):
-                    files.append(os.path.join(root, f))
-        files.sort(key=os.path.getmtime, reverse=True)
-        for file_path in files[:limit]:
-            try:
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                event_data = {
-                    "schema_version": "0.1", "runtime": "gemini", "session_id": data.get("sessionId"),
-                    "run_id": data.get("sessionId"), "timestamp_start": data.get("startTime"),
-                    "timestamp_end": data.get("lastUpdated"), "workspace": data.get("projectHash"),
-                    "tools_used": [], "tool_sequence": [], "commands_run": [], "files_touched": [],
-                    "memory_operations": [], "outcome": "completed"
-                }
-                for msg in data.get("messages", []):
-                    if msg.get("type") == "user" and not event_data.get("user_goal"):
-                        event_data["user_goal"] = msg.get("content", "").strip()
-                    for tc in msg.get("toolCalls", []):
-                        name = tc.get("name")
-                        if name:
-                            if name not in event_data["tools_used"]:
-                                event_data["tools_used"].append(name)
-                            event_data["tool_sequence"].append(name)
-                            args = tc.get("args", {})
-                            if name in ["execute_command", "bash"]:
-                                cmd = args.get("command") or args.get("cmd")
-                                if cmd:
-                                    event_data["commands_run"].append(cmd)
-                            elif name in ["write_file", "edit_file", "apply_patch"]:
-                                path = args.get("file_path") or args.get("path")
-                                if path:
-                                    event_data["files_touched"].append(path)
-                if event_data.get("session_id"):
-                    events.append(event_data)
-            except Exception:
-                continue
-        return events
-
-class CodexAdapter:
-    def __init__(self, sessions_base="~/.codex/sessions"):
-        self.sessions_base = os.path.expanduser(sessions_base)
-
-    def normalize(self, limit=50):
-        events = []
-        if not os.path.exists(self.sessions_base):
-            return events
-        files = []
-        for root, _, filenames in os.walk(self.sessions_base):
-            for f in filenames:
-                if f.startswith("rollout-") and f.endswith(".jsonl"):
-                    files.append(os.path.join(root, f))
-        files.sort(key=os.path.getmtime, reverse=True)
-        for file_path in files[:limit]:
-            try:
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    lines = f.readlines()
-                event_data = {
-                    "schema_version": "0.1", "runtime": "codex", "tools_used": [], "tool_sequence": [],
-                    "commands_run": [], "files_touched": [], "memory_operations": [], "outcome": "completed"
-                }
-                for line in lines:
-                    try:
-                        data = json.loads(line)
-                        ev_type = data.get("type")
-                        payload = data.get("payload", {})
-                        if ev_type == "session_meta":
-                            event_data["session_id"] = payload.get("id")
-                            event_data["run_id"] = payload.get("id")
-                            event_data["timestamp_start"] = payload.get("timestamp")
-                            event_data["workspace"] = payload.get("cwd")
-                            instr = payload.get("base_instructions", {}).get("text", "")
-                            if "Task:\n" in instr:
-                                event_data["user_goal"] = instr.split("Task:\n")[-1].strip()
-                        elif ev_type == "response_item":
-                            ptype = payload.get("type")
-                            if ptype == "message" and payload.get("role") == "user":
-                                for c in payload.get("content", []):
-                                    if isinstance(c, dict) and c.get("type") == "input_text":
-                                        event_data["user_goal"] = c.get("text").strip()
-                                    elif isinstance(c, str):
-                                        event_data["user_goal"] = c.strip()
-                            elif ptype == "function_call":
-                                name = payload.get("name")
-                                if name:
-                                    if name not in event_data["tools_used"]:
-                                        event_data["tools_used"].append(name)
-                                    event_data["tool_sequence"].append(name)
-                                    if name == "exec_command":
-                                        args_raw = payload.get("arguments", "{}")
-                                        args = args_raw if isinstance(args_raw, dict) else json.loads(args_raw)
-                                        cmd = args.get("cmd")
-                                        if cmd:
-                                            event_data["commands_run"].append(cmd)
-                    except Exception:
-                        continue
-                if "session_id" in event_data:
-                    events.append(event_data)
-            except Exception:
-                continue
-        return events
+# The old direct runtime adapters were removed after ADR 0001. OpenCode is the
+# execution/log substrate; runtime-agents local state remains available for
+# control-plane self-observation.
 
 class RuntimeAgentsAdapter:
     def __init__(self, base_path):
@@ -424,7 +277,7 @@ def main():
     subparsers = parser.add_subparsers(dest="command")
 
     ing_p = subparsers.add_parser("ingest")
-    ing_p.add_argument("--runtime", choices=["claude", "opencode", "runtime-agents", "codex", "gemini"], required=True)
+    ing_p.add_argument("--runtime", choices=["opencode", "runtime-agents"], required=True)
     ing_p.add_argument("--recent", type=int, default=50)
 
     subparsers.add_parser("scan")
@@ -538,7 +391,7 @@ def main():
     args = parser.parse_args()
 
     if args.command == "ingest":
-        adapters = {"claude": ClaudeCCRAdapter(), "gemini": GeminiAdapter(), "codex": CodexAdapter(), "runtime-agents": RuntimeAgentsAdapter("~/.local/share/runtime-agents"), "opencode": OpencodeAdapter()}
+        adapters = {"runtime-agents": RuntimeAgentsAdapter("~/.local/share/runtime-agents"), "opencode": OpencodeAdapter()}
         if args.runtime in adapters:
             events = adapters[args.runtime].normalize(50)
             if events:
@@ -609,7 +462,7 @@ def main():
     elif args.command == "scheduler":
         if args.scheduler_command == "run-once":
             log_scheduler("--- Start ---")
-            for rt in ["claude", "opencode", "runtime-agents", "codex", "gemini"]:
+            for rt in ["opencode", "runtime-agents"]:
                 log_scheduler(f"Ingesting {rt}...")
                 subprocess.run(["python3", sys.argv[0], "ingest", "--runtime", rt], capture_output=True)
             log_scheduler("Schedule run...")

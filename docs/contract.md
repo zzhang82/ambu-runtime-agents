@@ -19,6 +19,17 @@
 - RUNTIME_AGENTS_STATE_HOME
 - RUNTIME_AGENTS_AGENTCTL_BIN
 
+## Unreleased CrewOS Company-Loop JSON Surfaces
+
+These surfaces are activation-ready but not a closed release boundary. `company-dispatch` is intentionally dry-run-only in v2; live autonomous specialist dispatch requires a future acceptance-tested path.
+
+- agentctl company-status --json
+- agentctl company-dispatch <goal...> --dry-run --json
+- agentctl company-activate --json
+- agentctl company-activate --live --yes --json
+- agentctl company-activate --live --yes --start-daemon --json
+- agentctl daemon-status --json includes `heartbeat` when a fresh daemon loop is present.
+
 ## Stable JSON Commands
 - agentctl version --json
 - agentctl smoke --json

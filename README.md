@@ -8,6 +8,12 @@ Current architecture direction is governed by `docs/adr/0001-opencode-telegram-m
 
 The older multi-runtime self-improvement and SkillOps prototype under `self_improvement/` is experimental/quarantined. It is retained as design evidence, but it is not part of the trusted `agentctl` contract and is not proof of a closed `v1.6.0` release.
 
+Current unreleased CrewOS company-loop work is a v2 activation-ready surface, not a closed package release. The safe boundary is:
+- `agentctl company-status --json` reports company-loop readiness, Crew bindings, daemon heartbeat, queue, schedule, workspace, and Telegram posture.
+- `agentctl company-dispatch <goal...> --dry-run --json` plans a Cole-gated specialist workflow only. It must not enqueue work, start daemons, create schedules, or write AMB records.
+- `agentctl company-activate` defaults to dry-run and requires `--live --yes` before it can create the bounded `crewos-company-review` Cole-manager schedule. It blocks live activation when active queued work exists. `--start-daemon` is a separate explicit flag.
+- `company-dispatch` remains dry-run-only in v2; live specialist dispatch requires a future acceptance-tested path.
+
 Installed commands:
 - agentctl
 - agentd
@@ -43,6 +49,22 @@ v1.5.0 adds metadata-derived context-aware guardrails on top of the profile and 
 
 `context_state` in v1.5 is derived from declared profile/tool/action metadata. It does not yet track arbitrary tool result flows or live untrusted content propagation.
 
+## CPA-aware model routing
+
+`agentctl model` exposes the configured CPA/OpenCode catalog and routing evidence. CPA gateway credentials are resolved at runtime from environment variables or the existing OpenCode config and are never written to state.
+
+```bash
+agentctl model refresh --json
+agentctl model status --json
+agentctl model catalog-check --json
+agentctl model recommend --agent designer --json
+agentctl model recommend --agent fixer --json
+```
+
+`refresh` stores a sanitized mode-600 snapshot in `RUNTIME_AGENTS_STATE_HOME`. When `model_routing.required: true`, every `agentctl run` and `agentctl iterate` refreshes routing evidence, resolves the agent's role frame, pins one eligible model, and automatically tries later approved candidates only after a transient model failure. Failed models enter bounded local cooldown so the next subagent does not immediately select the same exhausted route.
+
+The weekly quota widget is explicitly OpenAI/Codex-scoped and cannot exclude Gemini, Claude, or xAI. Unknown provider quota is surfaced as unknown rather than guessed. `agentctl model recommend` remains a read-only preview of the same policy used by enforced task preflight.
+
 `assistant-exec` now routes through `runtime_agents.actions`, which centralizes typed action execution while preserving the existing JSON contract.
 
 ## Experimental Self-Improvement / SkillOps Prototype
@@ -58,7 +80,7 @@ Prototype status:
 - useful as design evidence for future ADR-approved work
 - mutating commands can affect local event state, scheduler state, global skill-store files, rollback state, or backup/NAS paths
 
-The system is event-driven, not a background listener by default. Runtimes such as opencode, Claude/CCR, Codex, Gemini, and runtime-agents emit or expose logs. These are normalized into `AgentRunEvent` records and stored locally.
+The system is event-driven, not a background listener by default. The supported live execution/log path is OpenCode plus runtime-agents local run state. Older direct provider CLI ingestion was removed from the active prototype after ADR 0001.
 
 Core flow:
 

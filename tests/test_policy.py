@@ -25,6 +25,14 @@ class PolicyTests(unittest.TestCase):
         kind = policy.classify_failure("", "gateway unavailable timeout", 1)
         self.assertEqual(kind, "transient_model_error")
 
+    def test_classify_claude_quota_exhaustion(self):
+        kind = policy.classify_failure("", "Error: Resource has been exhausted (e.g. check quota).", 1)
+        self.assertEqual(kind, "transient_model_error")
+
+    def test_classify_provider_cooldown(self):
+        kind = policy.classify_failure("", "All credentials for model claude-sonnet-4-6 are cooling down", 1)
+        self.assertEqual(kind, "transient_model_error")
+
 
 if __name__ == "__main__":
     unittest.main()

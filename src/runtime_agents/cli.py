@@ -11,13 +11,16 @@ import signal
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
+from datetime import datetime, timezone
 
 from runtime_agents import actions as actions_mod
 from runtime_agents import assistant_router as assistant_router_mod
 from runtime_agents import execution_substrate as execution_substrate_mod
 from runtime_agents import fabric_entry as fabric_entry_mod
 from runtime_agents import guardrails as guardrails_mod
+from runtime_agents import model_catalog as model_catalog_mod
 from runtime_agents import paths as paths_mod
 from runtime_agents import plans as plans_mod
 from runtime_agents import policy as policy_mod
@@ -75,13 +78,14 @@ SCHEDULES_JSONL = paths_mod.SCHEDULES_JSONL
 PAUSED_FILE = paths_mod.PAUSED_FILE
 AGENTD_PID = paths_mod.AGENTD_PID
 AGENTD_LOG = paths_mod.AGENTD_LOG
+AGENTD_HEARTBEAT = paths_mod.AGENTD_HEARTBEAT
 TELEGRAM_OFFSET = paths_mod.TELEGRAM_OFFSET
 TELEGRAM_LOG = paths_mod.TELEGRAM_LOG
 STATUS_VALUES = MODEL_TASK_STATUSES
 MODEL_FALLBACK_PROFILES = {
-    "sonnet": "claude-sonnet-4-6",
-    "gpt54": "gpt-5.4",
-    "gpt55": "gpt-5.5",
+    "gpt54": "local/gpt-5.4",
+    "gpt55": "local/gpt-5.5",
+    "mini": "local/gpt-5.4-mini",
 }
 ITERATE_BLOCKED_CAPABILITIES = {
     "git_push",
@@ -99,19 +103,9 @@ PLAN_BLOCKED_CAPABILITIES = {
     "destructive_delete",
     "global_install",
 }
-TRANSIENT_MARKERS = (
-    "429",
-    "model_cooldown",
-    "RESOURCE_EXHAUSTED",
-    "Too Many Requests",
-    "timeout",
-    "temporarily unavailable",
-    "rate limit",
-    "gateway",
-    "gateway unavailable",
-    "connection reset",
-    "resource exhausted",
-)
+TRANSIENT_MARKERS = policy_mod.TRANSIENT_MARKERS
+PROCESS_TERMINATE_GRACE_SECONDS = 1.0
+PROCESS_KILL_GRACE_SECONDS = 1.0
 
 
 def now_iso():
@@ -770,74 +764,104 @@ def detect_approvals(config, agent_cfg, prompt):
     return policy_mod.detect_capabilities(prompt, allowed=required, patterns={k: (v or {}).get("patterns", []) for k, v in rules.items()})
 
 
-def build_command(tool, model, prompt, profile=None, autonomy="read_only"):
-    if tool == "codex":
-        cmd = ["codex", "exec", "--skip-git-repo-check"]
-        if profile:
-            cmd += ["--profile", profile]
-        else:
-            cmd += ["-m", model]
-        cmd += ["-c", 'approval_policy="never"']
-        sandbox = "workspace-write" if autonomy == "workspace_write" else "read-only"
-        cmd += ["-c", f'sandbox_mode="{sandbox}"']
-        cmd.append(prompt)
-        return cmd
-    if tool == "claude":
-        cmd = ["claude", "--bare", "-p"]
-        if model:
-            cmd += ["--model", model]
-        cmd.append(prompt)
-        return cmd
-    if tool == "gemini":
-        cmd = ["gemini"]
-        if model:
-            cmd += ["-m", model]
-        cmd += ["-p", prompt]
-        return cmd
+def build_command(tool, model, prompt, profile=None, autonomy="read_only", opencode_agent=None):
+    if tool == "opencode":
+        return execution_substrate_mod.build_opencode_exec_command(model, prompt, autonomy=autonomy, opencode_agent=opencode_agent)
     raise SystemExit(f"Unsupported tool: {tool}")
 
 
-def run_command(cmd, cwd, timeout):
+def _terminate_process(proc, *, kill=False):
+    if os.name == "posix":
+        try:
+            os.killpg(proc.pid, signal.SIGKILL if kill else signal.SIGTERM)
+        except ProcessLookupError:
+            return
+    elif proc.poll() is not None:
+        return
+    elif kill:
+        proc.kill()
+    else:
+        proc.terminate()
+
+
+def _run_process(cmd, cwd, timeout, *, shell=False):
     started = now_iso()
-    proc = subprocess.run(
+    popen_kwargs = {
+        "cwd": cwd,
+        "shell": shell,
+        "text": True,
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.PIPE,
+    }
+    if os.name == "posix":
+        popen_kwargs["start_new_session"] = True
+    proc = subprocess.Popen(
         cmd,
-        cwd=cwd,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        timeout=timeout,
+        **popen_kwargs,
     )
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+        returncode = proc.returncode
+    except subprocess.TimeoutExpired as exc:
+        stdout, stderr = exc.stdout, exc.stderr
+        _terminate_process(proc)
+        try:
+            drained_stdout, drained_stderr = proc.communicate(timeout=PROCESS_TERMINATE_GRACE_SECONDS)
+        except subprocess.TimeoutExpired:
+            _terminate_process(proc, kill=True)
+            try:
+                drained_stdout, drained_stderr = proc.communicate(timeout=PROCESS_KILL_GRACE_SECONDS)
+            except subprocess.TimeoutExpired as drain_exc:
+                drained_stdout, drained_stderr = drain_exc.stdout, drain_exc.stderr
+        stdout = drained_stdout if drained_stdout is not None else stdout
+        stderr = drained_stderr if drained_stderr is not None else stderr
+        stderr = ensure_text(stderr)
+        if stderr and not stderr.endswith("\n"):
+            stderr += "\n"
+        stderr += f"timeout after {timeout}s"
+        returncode = 124
     return {
         "started_at": started,
         "ended_at": now_iso(),
-        "returncode": proc.returncode,
-        "stdout": proc.stdout,
-        "stderr": proc.stderr,
+        "returncode": returncode,
+        "stdout": ensure_text(stdout),
+        "stderr": ensure_text(stderr),
     }
+
+
+def run_command(cmd, cwd, timeout):
+    return _run_process(cmd, cwd, timeout)
 
 
 def run_shell_check(command, cwd, timeout):
-    started = now_iso()
-    proc = subprocess.run(
-        command,
-        cwd=cwd,
-        shell=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        timeout=timeout,
-    )
-    return {
-        "started_at": started,
-        "ended_at": now_iso(),
-        "returncode": proc.returncode,
-        "stdout": proc.stdout,
-        "stderr": proc.stderr,
-    }
+    return _run_process(command, cwd, timeout, shell=True)
+
+
+def ensure_text(value):
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    return str(value)
+
+
+def normalize_attempt_text_fields(attempts, final):
+    normalized_final = final
+    for attempt in attempts:
+        attempt["stdout"] = ensure_text(attempt.get("stdout"))
+        attempt["stderr"] = ensure_text(attempt.get("stderr"))
+        if attempt is final:
+            normalized_final = attempt
+    if normalized_final is not None:
+        normalized_final["stdout"] = ensure_text(normalized_final.get("stdout"))
+        normalized_final["stderr"] = ensure_text(normalized_final.get("stderr"))
+    return attempts, normalized_final
 
 
 def should_fallback(result):
-    return policy_mod.classify_failure(result.get("stdout", ""), result.get("stderr", ""), result.get("returncode", 1)) == "transient_model_error"
+    return policy_mod.classify_failure(ensure_text(result.get("stdout", "")), ensure_text(result.get("stderr", "")), result.get("returncode", 1)) == "transient_model_error"
 
 
 def classify_failure_text(text):
@@ -899,15 +923,20 @@ def parse_tools_from_stdout(stdout):
     return sorted(list(set(mcp_tools + opencode_tools + calling_tools)))
 
 
-def execute_agent_attempts(agent_cfg, tool, model, prompt, autonomy, fallback, timeout, cwd=None, event_capture=None):
+def execute_agent_attempts(agent_cfg, tool, model, prompt, autonomy, fallback, timeout, cwd=None, event_capture=None, routing_fallbacks=None, cooldown_seconds=900):
     attempts = []
-    profiles = [None]
-    if fallback:
-        profiles.extend(agent_cfg.get("fallback_profiles") or [])
+    plans: list[tuple[str | None, str]] = [(None, model)]
+    if routing_fallbacks:
+        plans.extend((f"dynamic:{index}", candidate) for index, candidate in enumerate(routing_fallbacks, start=1))
+    elif fallback:
+        for profile in agent_cfg.get("fallback_profiles") or []:
+            candidate = MODEL_FALLBACK_PROFILES.get(profile)
+            if candidate:
+                plans.append((profile, candidate))
     final = None
-    for index, profile in enumerate(profiles, start=1):
-        attempt_model = MODEL_FALLBACK_PROFILES.get(profile, model)
-        cmd = build_command(tool, attempt_model, prompt, profile=profile if tool == "codex" else None, autonomy=autonomy)
+    allow_fallback = bool(routing_fallbacks) or fallback
+    for index, (profile, attempt_model) in enumerate(plans, start=1):
+        cmd = build_command(tool, attempt_model, prompt, profile=profile, autonomy=autonomy, opencode_agent=agent_cfg.get("opencode_agent"))
         attempt = {
             "attempt": index,
             "profile": profile,
@@ -937,9 +966,10 @@ def execute_agent_attempts(agent_cfg, tool, model, prompt, autonomy, fallback, t
         if result["returncode"] == 0:
             final = attempt
             break
-        if not fallback or not should_fallback(result):
+        if not allow_fallback or not should_fallback(result):
             final = attempt
             break
+        model_catalog_mod.record_cooldown(attempt_model, "transient_model_error", cooldown_seconds)
     if final is None and attempts:
         final = attempts[-1]
     return attempts, final
@@ -1460,7 +1490,12 @@ def run_task(args):
         raise SystemExit(f"Unknown agent: {args.agent}")
     agent_cfg = agents[args.agent]
     tool = agent_cfg["tool"]
-    model = args.model or agent_cfg.get("model") or config.get("models", {}).get("primary")
+    routing = model_catalog_mod.dispatch_preflight(config, args.agent, args.model)
+    model = routing.get("selected_model")
+    if not model:
+        raise SystemExit(f"No eligible model for agent {args.agent}: {routing.get('skipped') or 'preflight failed'}")
+    routing_fallbacks = [] if routing.get("explicit_override") else list(routing.get("fallbacks") or [])
+    cooldown_seconds = int(((config.get("model_routing") or {}).get("cooldown_seconds") or 900))
     autonomy = agent_cfg.get("autonomy", "read_only")
     workspace_cfg, workspace_cwd, memory_namespace = resolve_workspace_options(getattr(args, "workspace", None))
     run_cwd = workspace_cwd or Path.cwd()
@@ -1506,6 +1541,7 @@ def run_task(args):
             "legacy_direct": substrate["legacy_direct"],
             "intended_primary_substrate": substrate["intended_primary_substrate"],
             "model": model,
+            "model_routing": routing,
             "autonomy": autonomy,
             "approval_capabilities": approvals,
             "unapproved_capabilities": unapproved,
@@ -1527,6 +1563,7 @@ def run_task(args):
         "tool": tool,
         **execution_substrate_mod.classify_agent_execution(agent_cfg),
         "model": model,
+        "model_routing": routing,
         "status": "approval_required" if unapproved else "running",
         "started_at": now_iso(),
         "ended_at": None,
@@ -1560,7 +1597,20 @@ def run_task(args):
         event_capture.finish(outcome="blocked", summary="Task blocked by MVP policy gate")
         return 2
 
-    attempts, final = execute_agent_attempts(agent_cfg, tool, model, effective_prompt, autonomy, args.fallback, args.timeout, cwd=run_cwd, event_capture=event_capture)
+    attempts, final = execute_agent_attempts(
+        agent_cfg,
+        tool,
+        model,
+        effective_prompt,
+        autonomy,
+        args.fallback,
+        args.timeout,
+        cwd=run_cwd,
+        event_capture=event_capture,
+        routing_fallbacks=routing_fallbacks,
+        cooldown_seconds=cooldown_seconds,
+    )
+    attempts, final = normalize_attempt_text_fields(attempts, final)
     for attempt in attempts:
         index = attempt["attempt"]
         result = attempt
@@ -1590,7 +1640,12 @@ def iterate_cmd(args):
         raise SystemExit(f"Unknown agent: {args.agent}")
     agent_cfg = agents[args.agent]
     tool = agent_cfg["tool"]
-    model = args.model or agent_cfg.get("model") or config.get("models", {}).get("primary")
+    routing = model_catalog_mod.dispatch_preflight(config, args.agent, args.model)
+    model = routing.get("selected_model")
+    if not model:
+        raise SystemExit(f"No eligible model for agent {args.agent}: {routing.get('skipped') or 'preflight failed'}")
+    routing_fallbacks = [] if routing.get("explicit_override") else list(routing.get("fallbacks") or [])
+    cooldown_seconds = int(((config.get("model_routing") or {}).get("cooldown_seconds") or 900))
     autonomy = agent_cfg.get("autonomy", "read_only")
     workspace_cfg, workspace_cwd, memory_namespace = resolve_workspace_options(getattr(args, "workspace", None))
     run_cwd = workspace_cwd or Path.cwd()
@@ -1640,6 +1695,7 @@ def iterate_cmd(args):
             "legacy_direct": substrate["legacy_direct"],
             "intended_primary_substrate": substrate["intended_primary_substrate"],
             "model": model,
+            "model_routing": routing,
             "autonomy": autonomy,
             "goal": goal,
             "check": args.check,
@@ -1664,6 +1720,7 @@ def iterate_cmd(args):
             "agent": args.agent,
             "tool": tool,
             "model": model,
+            "model_routing": routing,
             "status": "approval_required",
             "started_at": now_iso(),
             "ended_at": now_iso(),
@@ -1711,6 +1768,7 @@ def iterate_cmd(args):
         "tool": tool,
         **execution_substrate_mod.classify_agent_execution(agent_cfg),
         "model": model,
+        "model_routing": routing,
         "status": "running",
         "started_at": started,
         "ended_at": None,
@@ -1764,6 +1822,16 @@ def iterate_cmd(args):
     fallback_used = False
     last_check = check_result
     for round_num in range(1, args.max_rounds + 1):
+        routing = model_catalog_mod.dispatch_preflight(config, args.agent, args.model)
+        model = routing.get("selected_model")
+        if not model:
+            round_result = {"round": round_num, "agent_returncode": None, "attempts": [], "check": None, "routing_error": routing.get("skipped")}
+            rd = rounds_dir / str(round_num)
+            rd.mkdir(parents=True, exist_ok=True)
+            write_json(rd / "result.json", round_result)
+            round_results.append(round_result)
+            break
+        routing_fallbacks = [] if routing.get("explicit_override") else list(routing.get("fallbacks") or [])
         rd = rounds_dir / str(round_num)
         rd.mkdir(parents=True, exist_ok=True)
         if autonomy == "read_only":
@@ -1787,7 +1855,19 @@ Previous check stderr:
 Shared tool guidance: if your runtime exposes Agent Memory Bridge, Context7, or Playwright tools, use them as evidence lanes when relevant. Prefer Agent Memory Bridge for project/domain memory, Context7 for current library docs, and Playwright for browser/UI validation. Do not assume those tools exist; proceed with local files and commands when unavailable.
 """.strip()
         (rd / "prompt.txt").write_text(prompt + "\n", encoding="utf-8")
-        attempts, final_attempt = execute_agent_attempts(agent_cfg, tool, model, prompt, autonomy, args.fallback, args.timeout, cwd=run_cwd, event_capture=event_capture)
+        attempts, final_attempt = execute_agent_attempts(
+            agent_cfg,
+            tool,
+            model,
+            prompt,
+            autonomy,
+            args.fallback,
+            args.timeout,
+            cwd=run_cwd,
+            event_capture=event_capture,
+            routing_fallbacks=routing_fallbacks,
+            cooldown_seconds=cooldown_seconds,
+        )
         for attempt in attempts:
             idx = attempt["attempt"]
             (rd / f"attempt-{idx}-stdout.log").write_text(attempt["stdout"], encoding="utf-8")
@@ -2538,9 +2618,9 @@ def run_next_cmd(args):
             effective_goal, memory_recall = apply_memory_prelude(goal, item.get("memory_namespace"), memory_opts.get("query") or goal, memory_opts)
 
             if item.get("mode") == "iterate":
-                cmd = [str(Path(__file__)), "iterate", item["agent"], effective_goal, "--check", item["check"], "--max-rounds", str(item.get("max_rounds") or 5), "--json", "--no-memory"]
+                cmd = [sys.executable, "-m", "runtime_agents.cli", "iterate", item["agent"], effective_goal, "--check", item["check"], "--max-rounds", str(item.get("max_rounds") or 5), "--json", "--no-memory"]
             else:
-                cmd = [str(Path(__file__)), "run", item["agent"], effective_goal, "--no-memory"]
+                cmd = [sys.executable, "-m", "runtime_agents.cli", "run", item["agent"], effective_goal, "--no-memory"]
 
             proc = subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=cwd)
             task_id_value = extract_task_id(proc.stdout)
@@ -2646,26 +2726,48 @@ def resume_cmd(args):
     return 0
 
 
+def read_agentd_heartbeat(max_age_seconds=30):
+    if not AGENTD_HEARTBEAT.exists():
+        return {"present": False, "fresh": False}
+    try:
+        payload = json.loads(AGENTD_HEARTBEAT.read_text(encoding="utf-8"))
+        updated_at = payload.get("updated_at")
+        age_seconds = None
+        fresh = False
+        if updated_at:
+            observed = datetime.fromisoformat(updated_at)
+            if observed.tzinfo is None:
+                observed = observed.replace(tzinfo=timezone.utc)
+            age_seconds = max(0.0, (datetime.now(timezone.utc) - observed).total_seconds())
+            fresh = age_seconds <= max_age_seconds
+        return {**payload, "present": True, "fresh": fresh, "age_seconds": age_seconds, "path": str(AGENTD_HEARTBEAT)}
+    except Exception as exc:
+        return {"present": True, "fresh": False, "error": str(exc), "path": str(AGENTD_HEARTBEAT)}
+
+
 def daemon_status_payload():
-    ensure_state()
     pid = None
     if AGENTD_PID.exists():
         try:
             pid = int(AGENTD_PID.read_text(encoding="utf-8").strip())
         except Exception:
             pid = None
+    heartbeat = read_agentd_heartbeat()
+    heartbeat_pid = heartbeat.get("pid") if heartbeat.get("fresh") else None
+    effective_pid = pid or heartbeat_pid
     counts = queue_counts()
-    running = bool(pid and pid_is_running(pid))
+    running = bool(effective_pid and pid_is_running(effective_pid) and (pid or heartbeat.get("fresh")))
     return {
         "daemon": True,
         "running": running,
         "paused": PAUSED_FILE.exists(),
-        "pid": pid if running else None,
+        "pid": effective_pid if running else None,
         "queue_pending": counts.get("queued", 0),
         "queue_running": counts.get("running", 0),
         "last_task_id": last_queue_task_id(),
         "pid_file": str(AGENTD_PID),
         "log_file": str(AGENTD_LOG),
+        "heartbeat": heartbeat,
     }
 
 
@@ -2686,12 +2788,11 @@ def agentd_once_cmd(args):
     return run_next_cmd(argparse.Namespace(dry_run=False))
 
 
-def agentd_start_cmd(args):
+def start_agentd_payload():
     ensure_state()
     existing = daemon_status_payload()
     if existing.get("running"):
-        print_json(existing)
-        return 0
+        return {"started": False, "already_running": True, "pid": existing.get("pid"), "log_file": str(AGENTD_LOG)}
     agentd_path = shutil.which("agentd")
     if not agentd_path:
         raise SystemExit("agentd not found on PATH")
@@ -2703,7 +2804,11 @@ def agentd_start_cmd(args):
         AGENTD_LOG.chmod(0o600)
     except Exception:
         pass
-    print_json({"started": True, "pid": proc.pid, "log_file": str(AGENTD_LOG)})
+    return {"started": True, "pid": proc.pid, "log_file": str(AGENTD_LOG)}
+
+
+def agentd_start_cmd(args):
+    print_json(start_agentd_payload())
     return 0
 
 
@@ -2750,6 +2855,20 @@ def show_cmd(args):
     return 0
 
 
+def agent_binding_payload(agent_name, agent_cfg):
+    resolved = agent_cfg.get("opencode_agent") or "general"
+    if resolved == "general":
+        fidelity = "fallback_general"
+    elif resolved == agent_name or resolved in {"klaus-validator"}:
+        fidelity = "specialist"
+    else:
+        fidelity = "custom"
+    return {
+        "resolved_opencode_agent": resolved,
+        "binding_fidelity": fidelity,
+    }
+
+
 def inspect_cmd(args):
     config = load_config()
     agents = config.get("agents") or {}
@@ -2763,6 +2882,7 @@ def inspect_cmd(args):
         "autonomy": agent_cfg.get("autonomy"),
         "fallback_profiles": agent_cfg.get("fallback_profiles") or [],
         "approval_required": agent_cfg.get("approval_required") or [],
+        **agent_binding_payload(args.agent, agent_cfg),
         **execution_substrate_mod.classify_agent_execution(agent_cfg),
     }
     print_json(payload)
@@ -2777,6 +2897,367 @@ def list_agents_cmd(args):
     else:
         for name, agent_cfg in agents.items():
             print(f"{name} {agent_cfg.get('tool')} {agent_cfg.get('model')} {agent_cfg.get('autonomy')}")
+    return 0
+
+
+CREW_COMPANY_ROLES = {
+    "jules": {"lane": "scope", "required": True},
+    "eli": {"lane": "implementation", "required": True},
+    "ren": {"lane": "runtime_validation", "required": True},
+    "lucien": {"lane": "route_discovery", "required": True},
+    "klaus": {"lane": "forensic_validation", "required": True},
+    "bob": {"lane": "investment_research", "required": False},
+    "cole-manager": {"lane": "orchestration", "required": False},
+}
+
+
+def company_telegram_status_payload():
+    cfg = telegram_cfg()
+    token_present = bool(os.environ.get(cfg.get("bot_token_env") or ""))
+    agentbot_path = shutil.which("agentbot") or str(Path.home() / ".local" / "bin" / "agentbot")
+    return {
+        "enabled": cfg.get("enabled"),
+        "config_exists": TELEGRAM_CONFIG_PATH.exists(),
+        "bot_token_env": cfg.get("bot_token_env"),
+        "bot_token_present": token_present,
+        "agentbot_exists": Path(agentbot_path).exists() or bool(shutil.which("agentbot")),
+    }
+
+
+def company_status_payload():
+    """Return a read-only Crew OS company-loop status snapshot.
+
+    This intentionally does not start daemons, enqueue work, create schedules,
+    create state directories, or write AMB records. It is the safe v0 seam for
+    checking whether the Crew OS roster can be routed by runtime-agents without
+    colliding with existing queue, profile, schedule, Telegram, or AMB workflows.
+    """
+    config = load_config()
+    agents = config.get("agents") or {}
+    schedules = [s for s in latest_schedules().values() if not s.get("removed")]
+    queue_items = list(latest_queue_items().values())
+    tasks = list(latest_tasks().values())
+    daemon = daemon_status_payload()
+    tg = company_telegram_status_payload()
+    workspaces = load_workspaces()
+
+    crew_agents = {}
+    for role, meta in CREW_COMPANY_ROLES.items():
+        agent_cfg = agents.get(role)
+        crew_agents[role] = {
+            "registered": bool(agent_cfg),
+            "required": meta["required"],
+            "lane": meta["lane"],
+            "tool": agent_cfg.get("tool") if agent_cfg else None,
+            "opencode_agent": agent_cfg.get("opencode_agent") if agent_cfg else None,
+            "model": agent_cfg.get("model") if agent_cfg else None,
+            "autonomy": agent_cfg.get("autonomy") if agent_cfg else None,
+            "approval_required": agent_cfg.get("approval_required") if agent_cfg else [],
+            **(agent_binding_payload(role, agent_cfg) if agent_cfg else {"resolved_opencode_agent": None, "binding_fidelity": "missing"}),
+        }
+
+    queue_by_status = {}
+    for item in queue_items:
+        status = item.get("status") or "unknown"
+        queue_by_status[status] = queue_by_status.get(status, 0) + 1
+    schedules_by_agent = {}
+    for item in schedules:
+        agent = item.get("agent") or "unknown"
+        schedules_by_agent[agent] = schedules_by_agent.get(agent, 0) + 1
+
+    warnings = []
+    missing_required = [role for role, item in crew_agents.items() if item["required"] and not item["registered"]]
+    missing_optional = [role for role, item in crew_agents.items() if not item["required"] and not item["registered"]]
+    if missing_required:
+        warnings.append({"code": "missing_required_crew_agents", "severity": "blocker", "detail": missing_required})
+    if missing_optional:
+        warnings.append({"code": "missing_optional_crew_agents", "severity": "info", "detail": missing_optional})
+    unsupported = [name for name, cfg in agents.items() if cfg.get("tool") not in (config.get("tools") or {})]
+    if unsupported:
+        warnings.append({"code": "agent_tool_not_configured", "severity": "blocker", "detail": unsupported})
+    non_opencode = [name for name, cfg in agents.items() if cfg.get("tool") != "opencode"]
+    if non_opencode:
+        warnings.append({"code": "non_opencode_agents", "severity": "risk", "detail": non_opencode})
+    if not daemon.get("running"):
+        warnings.append({"code": "agentd_not_running", "severity": "info", "detail": "company loop will not dispatch continuously until agentd is started"})
+    if not schedules:
+        warnings.append({"code": "no_active_schedules", "severity": "info", "detail": "no recurring Cole review/dispatch schedule is active"})
+    if queue_by_status.get("queued", 0):
+        warnings.append({"code": "existing_queued_work", "severity": "risk", "detail": queue_by_status.get("queued", 0)})
+    if tg.get("enabled") and not tg.get("bot_token_present"):
+        warnings.append({"code": "telegram_enabled_without_token", "severity": "info", "detail": tg.get("bot_token_env")})
+
+    return {
+        "status": "ready" if not missing_required and not unsupported else "not_ready",
+        "mode": "v2_activation_ready",
+        "config_path": str(CONFIG_PATH),
+        "state_path": str(STATE_DIR),
+        "crew_agents": crew_agents,
+        "generic_agents": sorted(name for name in agents if name not in CREW_COMPANY_ROLES),
+        "queue": {"total": len(queue_items), "by_status": queue_by_status},
+        "recent_tasks": sorted([t.get("task_id") for t in tasks if t.get("task_id")])[-10:],
+        "daemon": daemon,
+        "schedules": {"total": len(schedules), "by_agent": schedules_by_agent},
+        "workspaces": {name: {"path": ws.get("path"), "memory_namespace": ws.get("memory_namespace")} for name, ws in workspaces.items()},
+        "telegram": {k: tg.get(k) for k in ("enabled", "config_exists", "bot_token_env", "bot_token_present", "agentbot_exists")},
+        "warnings": warnings,
+        "next_safe_actions": [
+            "Keep this command read-only until Crew OS routing is validated.",
+            "Use agentctl run <crew-agent> --dry-run before enabling schedules.",
+            "Start agentd and add schedules only after queue ownership and AMB signal/writeback policy are agreed.",
+        ],
+    }
+
+
+def company_status_cmd(args):
+    payload = company_status_payload()
+    if args.json:
+        print_json(payload)
+    else:
+        print(f"crew company loop: {payload['status']} ({payload['mode']})")
+        print(f"daemon: {'running' if payload['daemon'].get('running') else 'stopped'}")
+        print(f"queue: {payload['queue']['by_status']}")
+        print(f"schedules: {payload['schedules']['total']}")
+        for role, item in payload["crew_agents"].items():
+            mark = "ok" if item["registered"] else "missing"
+            print(f"{role}: {mark} {item.get('opencode_agent') or ''} {item.get('autonomy') or ''}")
+        for warning in payload["warnings"]:
+            print(f"warning[{warning['severity']}]: {warning['code']} {warning['detail']}")
+    return 0 if payload["status"] == "ready" else 2
+
+
+COMPANY_DISPATCH_NON_GOALS = [
+    "dry_run_required",
+    "do_not_start_daemon",
+    "do_not_create_schedules",
+    "do_not_enqueue_work",
+    "do_not_write_amb_records",
+]
+
+
+def company_dispatch_classify(goal_text):
+    text = goal_text.lower()
+    simple_patterns = [r"^what is [\w\s+*/.-]+\??$", r"^hi\b", r"^hello\b", r"^thanks?\b"]
+    if any(re.search(pattern, text) for pattern in simple_patterns):
+        return "simple_question", False, 0.9, ["direct_answer_is_cheaper_than_company_dispatch"]
+    if any(word in text for word in ["stock", "buy", "sell", "portfolio", "nvda", "earnings", "valuation"]):
+        return "investment_research", True, 0.86, ["specialist_domain_work", "high_cost_of_being_wrong", "requires_non_advice_boundary"]
+    if any(word in text for word in ["runtime", "agentctl", "agentd", "queue", "selftest", "config", "daemon", "telegram", "amb", "memory writeback"]):
+        return "runtime_debugging", True, 0.88, ["runtime_config_risk", "validation_required", "implementation_may_be_needed"]
+    if any(word in text for word in ["implement", "build", "fix", "change", "add", "code", "test"]):
+        return "implementation", True, 0.8, ["implementation_needed", "validation_required"]
+    if any(word in text for word in ["plan", "scope", "workflow", "company", "crew", "design", "architecture"]):
+        return "scope_planning", True, 0.78, ["ambiguous_scope", "planning_needed"]
+    return "direct_or_unclear", False, 0.55, ["no_clear_company_trigger"]
+
+
+def company_workflow_for_classification(classification):
+    if classification == "runtime_debugging":
+        return [
+            {"agent": "lucien", "role": "diagnose runtime/tooling root cause", "mode": "read_only"},
+            {"agent": "eli", "role": "implement bounded fix after Cole approval", "mode": "workspace_write", "requires_approval": True},
+            {"agent": "ren", "role": "run validation and regression checks", "mode": "read_only"},
+            {"agent": "klaus", "role": "adversarial risk and claim-safety review", "mode": "read_only"},
+        ]
+    if classification == "implementation":
+        return [
+            {"agent": "jules", "role": "cut scope and acceptance criteria", "mode": "read_only"},
+            {"agent": "eli", "role": "implement bounded change", "mode": "workspace_write", "requires_approval": True},
+            {"agent": "ren", "role": "validate tests and runtime behavior", "mode": "read_only"},
+        ]
+    if classification == "scope_planning":
+        return [
+            {"agent": "jules", "role": "scope the company workflow and non-goals", "mode": "read_only"},
+            {"agent": "cole-manager", "role": "synthesize decision and next dispatch packet", "mode": "read_only"},
+        ]
+    if classification == "investment_research":
+        return [
+            {"agent": "bob", "role": "tracker-first research and evidence packet", "mode": "read_only"},
+            {"agent": "ren", "role": "validate data freshness and artifacts", "mode": "read_only"},
+            {"agent": "klaus", "role": "check provenance, hallucination, and non-advice boundary", "mode": "read_only"},
+            {"agent": "cole-manager", "role": "gate final non-advice decision support", "mode": "read_only"},
+        ]
+    return []
+
+
+def company_activation_assessment(status_payload):
+    blockers = []
+    warnings = []
+    for warning in status_payload.get("warnings", []):
+        code = warning.get("code")
+        if code in {"missing_required_crew_agents", "agent_tool_not_configured", "existing_queued_work"}:
+            blockers.append(code)
+        elif code:
+            warnings.append(code)
+    fallback_agents = [name for name, item in status_payload.get("crew_agents", {}).items() if item.get("binding_fidelity") == "fallback_general"]
+    if fallback_agents:
+        warnings.append("fallback_general_bindings:" + ",".join(sorted(fallback_agents)))
+    return {"status": "blocked" if blockers else "ready", "blockers": blockers, "warnings": warnings}
+
+
+def company_dispatch_payload(goal_words):
+    goal = " ".join(goal_words).strip()
+    status_payload = company_status_payload()
+    classification, trigger, confidence, reasons = company_dispatch_classify(goal)
+    workflow = company_workflow_for_classification(classification) if trigger else []
+    activation = company_activation_assessment(status_payload)
+    boundaries = []
+    if classification == "investment_research":
+        boundaries.append("non_advice_boundary")
+    memory_mode = "available" if AMBAdapter is not None else "degraded_or_disabled"
+    return {
+        "goal": goal,
+        "trigger": trigger,
+        "classification": classification,
+        "confidence": confidence,
+        "reasons": reasons,
+        "workflow": workflow,
+        "execution": "dry_run_only",
+        "activation": activation,
+        "memory_mode": memory_mode,
+        "boundaries": boundaries,
+        "non_goals": COMPANY_DISPATCH_NON_GOALS,
+        "company_status": {"status": status_payload.get("status"), "mode": status_payload.get("mode"), "warnings": [w.get("code") for w in status_payload.get("warnings", [])]},
+    }
+
+
+def company_dispatch_cmd(args):
+    if not args.dry_run:
+        payload = {"status": "blocked", "error": "company-dispatch remains dry-run-only in v2; use company-activate for gated live scheduling", "execution": "none"}
+        if args.json:
+            print_json(payload)
+        else:
+            print("company-dispatch remains dry-run-only in v2; pass --dry-run --json")
+        return 2
+    payload = company_dispatch_payload(args.goal)
+    if args.json:
+        print_json(payload)
+    else:
+        print(f"trigger: {payload['trigger']} classification: {payload['classification']}")
+        for step in payload["workflow"]:
+            print(f"{step['agent']}: {step['role']}")
+    return 0
+
+
+COMPANY_REVIEW_SCHEDULE_NAME = "crewos-company-review"
+COMPANY_REVIEW_SCHEDULE_CRON = "0 9 * * *"
+COMPANY_REVIEW_GOAL = (
+    "Cole company-manager review: inspect company-status and company-dispatch posture, "
+    "check project current.md/project bridge for dogfood work, propose safe dispatches, "
+    "and report blockers. Do not edit files, start daemons, enqueue specialist work, "
+    "or write durable memory without explicit Cole approval."
+)
+
+
+def company_activate_payload():
+    status_payload = company_status_payload()
+    activation = company_activation_assessment(status_payload)
+    return {
+        "status": activation["status"],
+        "execution": "dry_run_only",
+        "blockers": activation["blockers"],
+        "warnings": activation["warnings"],
+        "required_before_live_activation": [
+            "queue_zero_or_explicitly_owned",
+            "company_dispatch_dry_run_validated",
+            "specialist_bindings_auditable",
+            "no_unintended_old_work_dispatched_acceptance_test",
+        ],
+        "would_start_daemon": False,
+        "would_create_schedules": False,
+        "planned_schedule": {
+            "name": COMPANY_REVIEW_SCHEDULE_NAME,
+            "agent": "cole-manager",
+            "workspace": "runtime-agents",
+            "cron": COMPANY_REVIEW_SCHEDULE_CRON,
+            "type": "run",
+        },
+    }
+
+
+def ensure_company_review_schedule():
+    existing = schedule_by_name(COMPANY_REVIEW_SCHEDULE_NAME)
+    if existing and not existing.get("removed"):
+        return {"created": False, "schedule": existing}
+    workspaces = load_workspaces()
+    if "runtime-agents" not in workspaces:
+        raise SystemExit("Workspace 'runtime-agents' is required for company activation.")
+    workspace_cfg, cwd, memory_namespace = resolve_workspace_options("runtime-agents")
+    config = load_config()
+    memory_options = build_memory_options(config, enabled=True, query=COMPANY_REVIEW_GOAL, reason=None)
+    record = {
+        "schedule_id": schedule_id(COMPANY_REVIEW_SCHEDULE_NAME),
+        "name": COMPANY_REVIEW_SCHEDULE_NAME,
+        "enabled": True,
+        "removed": False,
+        "workspace": "runtime-agents",
+        "cwd": str(cwd),
+        "memory_namespace": memory_namespace,
+        "type": "run",
+        "agent": "cole-manager",
+        "goal": COMPANY_REVIEW_GOAL,
+        "check": None,
+        "cron": COMPANY_REVIEW_SCHEDULE_CRON,
+        "timezone": "local",
+        "max_rounds": 1,
+        "memory": memory_options,
+        "created_from": "company_activate",
+        "created_at": now_iso(),
+        "updated_at": now_iso(),
+        "last_due_at": None,
+        "last_due_window": None,
+        "last_queue_id": None,
+        "last_task_id": None,
+    }
+    append_schedule(record)
+    return {"created": True, "schedule": record}
+
+
+def company_activate_cmd(args):
+    payload = company_activate_payload()
+    if not args.live:
+        if args.json:
+            print_json(payload)
+        else:
+            print(f"company activation: {payload['status']} ({payload['execution']})")
+            for blocker in payload.get("blockers", []):
+                print(f"blocker: {blocker}")
+        return 0 if payload["status"] == "ready" else 2
+
+    blockers = list(payload.get("blockers", []))
+    if not args.yes:
+        blockers.append("live_activation_requires_yes")
+    if blockers:
+        blocked = {**payload, "status": "blocked", "execution": "none", "blockers": sorted(set(blockers)), "would_start_daemon": False, "would_create_schedules": False}
+        if args.json:
+            print_json(blocked)
+        else:
+            print(f"company activation: {blocked['status']} ({blocked['execution']})")
+            for blocker in blocked.get("blockers", []):
+                print(f"blocker: {blocker}")
+        return 2
+
+    ensure_state()
+    schedule_result = ensure_company_review_schedule()
+    daemon_result = {"started": False, "reason": "start_daemon_flag_not_set"}
+    if args.start_daemon:
+        daemon_result = start_agentd_payload()
+    activated = {
+        **payload,
+        "status": "activated",
+        "execution": "live_configured",
+        "blockers": [],
+        "schedule": schedule_result,
+        "daemon": daemon_result,
+        "would_start_daemon": bool(args.start_daemon),
+        "would_create_schedules": True,
+    }
+    if args.json:
+        print_json(activated)
+    else:
+        print(f"company activation: {activated['status']} ({activated['execution']})")
+        print(f"schedule: {schedule_result['schedule'].get('name')}")
+        print(f"daemon_started: {daemon_result.get('started')}")
     return 0
 
 
@@ -2805,6 +3286,13 @@ def logs_cmd(args):
         path = run_dir / "result.json"
     else:
         path = run_dir / "stdout.log"
+    if not path.is_file():
+        payload = {"task_id": args.task_id, "file": args.file, "path": str(path), "exists": False, "text": ""}
+        if args.json:
+            print_json(payload)
+        else:
+            print(f"Log file not found: {path}", file=sys.stderr)
+        return 1
     text = path.read_text(encoding="utf-8")
     text = tail_lines(text, args.tail)
     if args.json:
@@ -2901,8 +3389,10 @@ def doctor_cmd(args):
         add(f"agent:{name}:tool", agent_cfg.get("tool") in legacy_tools, str(agent_cfg.get("tool")))
         add(f"agent:{name}:status_vocab", True, ",".join(sorted(STATUS_VALUES)))
         for profile_name in agent_cfg.get("fallback_profiles") or []:
-            ok = profile_name in MODEL_FALLBACK_PROFILES or profile_name in (config.get("models") or {})
-            add(f"agent:{name}:fallback:{profile_name}", ok, MODEL_FALLBACK_PROFILES.get(profile_name, ""))
+            if profile_name in MODEL_FALLBACK_PROFILES or profile_name in (config.get("models") or {}):
+                add(f"agent:{name}:fallback:{profile_name}", True, MODEL_FALLBACK_PROFILES.get(profile_name, ""))
+            else:
+                add(f"agent:{name}:fallback:{profile_name}:ignored", True, f"retired alias {profile_name}")
 
     add("state_dir_writable", os.access(STATE_DIR, os.W_OK), str(STATE_DIR))
     add("runs_dir_writable", os.access(RUNS_DIR, os.W_OK), str(RUNS_DIR))
@@ -2939,12 +3429,6 @@ def doctor_cmd(args):
         add("gateway_env_resolves", proc.returncode == 0, "masked" if proc.returncode == 0 else proc.stderr.strip())
     except Exception as exc:
         add("gateway_env_resolves", False, str(exc))
-
-    try:
-        proc = subprocess.run(["ccr", "status"], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=20)
-        add("ccr_reachable", proc.returncode == 0, "")
-    except Exception as exc:
-        add("ccr_reachable", False, str(exc))
 
     for path in (CONFIG_PATH, TASKS_JSONL, QUEUE_JSONL, QUEUE_LOCK, SCHEDULES_JSONL):
         if path.exists():
@@ -2993,7 +3477,7 @@ def config_validate_cmd(args):
             errors.append(f"agent {name} has invalid autonomy {agent_cfg.get('autonomy')}")
         for profile in agent_cfg.get("fallback_profiles") or []:
             if profile not in MODEL_FALLBACK_PROFILES:
-                errors.append(f"agent {name} has unknown fallback profile {profile}")
+                continue
     payload = {"ok": not errors, "errors": errors, "config_path": str(CONFIG_PATH)}
     if args.json:
         print_json(payload)
@@ -3774,15 +4258,10 @@ def health_cmd(args):
         except Exception as exc:
             checks.append((name, False, str(exc)))
 
-    check("gateway-env", ["opencode-gateway-env"])
-    check("ccr", ["ccr", "status"])
+    check("opencode", ["opencode", "--version"])
+    check("opencode:models", ["opencode", "models", "local"])
     if args.deep:
-        check("codex:gpt-5.5", ["codex", "exec", "--skip-git-repo-check", "-c", 'approval_policy="never"', "-c", 'sandbox_mode="read-only"', "-m", "gpt-5.5", "Reply exactly OK"])
-        check("claude:gpt-5.5", ["claude", "--bare", "-p", "Reply exactly OK"], timeout=120)
-        check("gemini:gpt-5.5", ["gemini", "-m", "gpt-5.5", "-p", "Reply exactly OK"])
-    else:
-        for command in ("codex", "claude", "gemini"):
-            checks.append((f"command:{command}", shutil.which(command) is not None, shutil.which(command) or "missing"))
+        check("opencode:run", ["opencode", "run", "--model", "local/grok-4.6", "Reply exactly OK"], timeout=180)
 
     if args.json:
         print_json([{"name": name, "ok": ok, "detail": detail} for name, ok, detail in checks])
@@ -4064,6 +4543,64 @@ def amb_health_cmd(args):
         if health.get("tools"):
             print("tools: " + ", ".join(health.get("tools") or []))
     return 0 if health.get("ok") else 1
+
+
+def _model_snapshot(refresh=False):
+    snapshot = None if refresh else model_catalog_mod.load_snapshot()
+    return snapshot or model_catalog_mod.refresh_snapshot()
+
+
+def model_refresh_cmd(args):
+    payload = model_catalog_mod.refresh_snapshot()
+    if args.json:
+        print_json(payload)
+    else:
+        print(f"Model catalog refreshed: {len(payload['models'])} models; CPA ok={payload['sources']['cpa']['ok']}")
+    return 0
+
+
+def model_status_cmd(args):
+    payload = _model_snapshot(args.refresh)
+    status = {
+        "advisory_only": True,
+        "snapshot": payload,
+        "freshness": model_catalog_mod.snapshot_freshness(payload),
+        "degraded_sources": [name for name, value in payload.get("sources", {}).items() if not value.get("ok")],
+    }
+    if args.json:
+        print_json(status)
+    else:
+        stale = "YES" if status["freshness"]["stale"] else "no"
+        print(f"Catalog: {len(payload.get('models', []))} models; generated: {payload.get('generated_at')}; stale: {stale}; degraded: {', '.join(status['degraded_sources']) or 'none'}")
+    return 0
+
+
+def model_catalog_check_cmd(args):
+    snapshot = _model_snapshot(args.refresh)
+    payload = {"advisory_only": True, **model_catalog_mod.catalog_comparison(snapshot)}
+    if args.json:
+        print_json(payload)
+    else:
+        print(f"Missing from OpenCode: {', '.join(payload['missing_from_opencode']) or 'none'}")
+        print(f"Stale in OpenCode: {', '.join(payload['stale_in_opencode']) or 'none'}")
+    return 0
+
+
+def model_recommend_cmd(args):
+    config = load_config()
+    if args.agent and args.agent not in (config.get("agents") or {}):
+        raise SystemExit(f"Unknown agent: {args.agent}")
+    try:
+        frame = model_catalog_mod.frame_for_agent(config, args.agent, args.frame)
+        payload = model_catalog_mod.recommend(_model_snapshot(args.refresh), frame, config, args.agent)
+    except ValueError as exc:
+        raise SystemExit(str(exc))
+    if args.json:
+        print_json(payload)
+    else:
+        print(f"Advisory recommendation: {payload['selected_model'] or 'none'}")
+        print("Fallbacks: " + ", ".join(payload["fallbacks"]))
+    return 0
 
 
 
@@ -4501,6 +5038,24 @@ def main():
     list_agents.add_argument("--json", action="store_true")
     list_agents.set_defaults(func=list_agents_cmd)
 
+    company_status = sub.add_parser("company-status")
+    company_status.add_argument("--json", action="store_true")
+    company_status.set_defaults(func=company_status_cmd)
+
+    company_dispatch = sub.add_parser("company-dispatch")
+    company_dispatch.add_argument("goal", nargs="*")
+    company_dispatch.add_argument("--dry-run", action="store_true")
+    company_dispatch.add_argument("--json", action="store_true")
+    company_dispatch.set_defaults(func=company_dispatch_cmd)
+
+    company_activate = sub.add_parser("company-activate")
+    company_activate.add_argument("--dry-run", action="store_true", help="Compatibility alias; default mode is dry-run unless --live is set.")
+    company_activate.add_argument("--live", action="store_true", help="Apply v2 activation config after all blockers are clear.")
+    company_activate.add_argument("--yes", action="store_true", help="Required with --live to acknowledge side effects.")
+    company_activate.add_argument("--start-daemon", action="store_true", help="Start agentd after live activation. Requires clean queue and --yes.")
+    company_activate.add_argument("--json", action="store_true")
+    company_activate.set_defaults(func=company_activate_cmd)
+
     retry = sub.add_parser("retry")
     retry.add_argument("task_id")
     retry.add_argument("--fallback", action="store_true")
@@ -4655,6 +5210,26 @@ def main():
     config_validate = config_sub.add_parser("validate")
     config_validate.add_argument("--json", action="store_true")
     config_validate.set_defaults(func=config_validate_cmd)
+
+    model = sub.add_parser("model", help="Read-only model catalog and advisory commands.")
+    model_sub = model.add_subparsers(dest="model_cmd", required=True)
+    model_refresh = model_sub.add_parser("refresh")
+    model_refresh.add_argument("--json", action="store_true")
+    model_refresh.set_defaults(func=model_refresh_cmd)
+    model_status = model_sub.add_parser("status")
+    model_status.add_argument("--refresh", action="store_true")
+    model_status.add_argument("--json", action="store_true")
+    model_status.set_defaults(func=model_status_cmd)
+    model_recommend = model_sub.add_parser("recommend")
+    model_recommend.add_argument("--frame", choices=sorted(model_catalog_mod.DEFAULT_CANDIDATES), default="recon")
+    model_recommend.add_argument("--agent")
+    model_recommend.add_argument("--refresh", action="store_true")
+    model_recommend.add_argument("--json", action="store_true")
+    model_recommend.set_defaults(func=model_recommend_cmd)
+    model_check = model_sub.add_parser("catalog-check")
+    model_check.add_argument("--refresh", action="store_true")
+    model_check.add_argument("--json", action="store_true")
+    model_check.set_defaults(func=model_catalog_check_cmd)
 
     guardrail = sub.add_parser("guardrail")
     guardrail_sub = guardrail.add_subparsers(dest="guardrail_cmd", required=True)

@@ -1,3 +1,0 @@
-#!/usr/bin/env bash
-printf 'gateway unavailable timeout 429\n' >&2
-exit 1

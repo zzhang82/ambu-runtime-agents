@@ -12,7 +12,7 @@ ADR source of truth: `docs/adr/0001-opencode-telegram-memory-pivot.md`.
 
 The prototype includes multi-runtime and SkillOps surfaces that predate the ADR 0001 pivot:
 
-- ingestion for opencode, Claude/CCR, Codex, Gemini, and runtime-agents
+- historical ingestion concepts for OpenCode, direct provider CLIs, and runtime-agents
 - scan/suggest/recommend/cluster-style learning workflow concepts
 - SkillOps staging, approvals, lifecycle, eval, deploy, lock, rollback, and restore concepts
 - scheduler paths for recurring self-improvement work
@@ -30,7 +30,7 @@ Current architecture direction:
 - AMB remains the governed durable memory substrate
 - Agent-Memory-Harness becomes the workflow/governance layer around AMB
 
-Direct Codex, Claude, Gemini, and other runtime adapters should not expand as the primary architecture path unless OpenCode cannot expose a required capability and a future decision records that exception.
+Direct provider-specific runtime adapters should not expand as the primary architecture path unless OpenCode cannot expose a required capability and a future decision records that exception.
 
 ## Command Risk Categories
 

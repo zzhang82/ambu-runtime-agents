@@ -168,5 +168,5 @@ Then:
 - Do not treat AMB memory as release proof.
 - Do not promote `v1.6.0` until git history, version surfaces, and acceptance evidence agree.
 - Do not absorb large self-improvement features into the core control plane before burn-in validates the need.
-- Do not expand direct Codex/Claude/Gemini runtime adapters as the primary architecture path without a future ADR.
+- Do not expand direct provider-specific runtime adapters as the primary architecture path without a future ADR.
 - Prefer thin wrappers around proven external workflows before deeper platform integration.

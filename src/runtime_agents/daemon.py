@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import datetime as dt
+import json
 import os
 import shutil
 import signal
@@ -21,6 +22,7 @@ STATE_DIR = state_home()
 PAUSED_FILE = STATE_DIR / "paused"
 AGENTD_PID = STATE_DIR / "agentd.pid"
 AGENTD_LOG = STATE_DIR / "agentd.log"
+AGENTD_HEARTBEAT = STATE_DIR / "agentd.heartbeat.json"
 
 running = True
 
@@ -40,6 +42,17 @@ def log(message):
         pass
 
 
+def write_heartbeat(stage="loop"):
+    try:
+        AGENTD_HEARTBEAT.write_text(
+            json.dumps({"pid": os.getpid(), "stage": stage, "updated_at": now_iso()}, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        AGENTD_HEARTBEAT.chmod(0o600)
+    except Exception:
+        pass
+
+
 def stop(signum, frame):
     global running
     running = False
@@ -51,21 +64,31 @@ def main():
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     AGENTD_PID.write_text(str(os.getpid()) + "\n", encoding="utf-8")
     AGENTD_PID.chmod(0o600)
+    write_heartbeat("started")
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
     log(f"agentd started pid={os.getpid()} interval={interval}")
     agentctl = resolve_agentctl_bin()
     while running:
+        write_heartbeat("loop")
         if PAUSED_FILE.exists():
             log("agentd paused")
             time.sleep(interval)
             continue
+        if os.environ.get("AGENTD_RUN_SCHEDULES", "1") not in {"0", "false", "False"}:
+            due_proc = subprocess.run([agentctl, "schedule", "run-due", "--json"], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            write_heartbeat("schedule_run_due")
+            log(f"schedule run-due returncode={due_proc.returncode} stdout={due_proc.stdout.strip()} stderr={due_proc.stderr.strip()}")
         proc = subprocess.run([agentctl, "run-next"], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        write_heartbeat("run_next")
         log(f"run-next returncode={proc.returncode} stdout={proc.stdout.strip()} stderr={proc.stderr.strip()}")
         time.sleep(interval)
     try:
+        write_heartbeat("stopping")
         if AGENTD_PID.exists() and AGENTD_PID.read_text(encoding="utf-8").strip() == str(os.getpid()):
             AGENTD_PID.unlink()
+        if AGENTD_HEARTBEAT.exists():
+            AGENTD_HEARTBEAT.unlink()
     except Exception:
         pass
     return 0

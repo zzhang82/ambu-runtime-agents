@@ -2,12 +2,24 @@
 
 ## Unreleased
 
+### Added
+- Added CrewOS company-loop v2 activation surfaces:
+  - `agentctl company-status --json` reports `v2_activation_ready` posture, Crew role bindings, daemon heartbeat, queue, schedule, workspace, and Telegram readiness without exposing credential values.
+  - `agentctl company-dispatch <goal...> --dry-run --json` classifies company-worthy work and emits a Cole-gated specialist workflow plan without enqueueing work, starting daemons, creating schedules, or writing AMB records.
+  - `agentctl company-activate` defaults to dry-run, requires `--live --yes` for mutation, blocks on active queued work, and can install a bounded `cole-manager` review schedule.
+- Added `agentd` schedule polling and heartbeat state so daemon status can verify a fresh loop, including pidfile race handling.
+
+### Safety
+- Kept `company-dispatch` dry-run-only in v2; live autonomous execution is intentionally limited to Cole-manager review scheduling until a future acceptance-tested dispatch path exists.
+- Added smoke coverage for company activation gates, stale-queue blocking, dry-run side-effect boundaries, and daemon heartbeat freshness/staleness behavior.
+
 ### Documentation
 - Aligned README/self-improvement documentation with ADR 0001: `runtime-agents v1.5.1` / `agentctl-v1.5.1` remains the trusted baseline, and the older multi-runtime self-improvement / SkillOps path is quarantined as experimental design evidence.
+- Removed active direct provider CLI execution/ingestion paths in favor of OpenCode as the live execution substrate.
 
 ### Added
 - Quarantined prototype: added runtime-agnostic self-improvement pipeline based on `AgentRunEvent`.
-- Quarantined prototype: added high-fidelity ingestion for opencode, Claude/CCR, Codex, Gemini, and runtime-agents.
+- Quarantined prototype: retained high-fidelity ingestion concepts as historical design evidence, with active ingestion narrowed to OpenCode and runtime-agents state.
 - Quarantined prototype: added `runtime-self-improve` commands for ingest, scan, suggest, recommend, schedule, approvals, rollback, lifecycle, evals, and backup.
 - Quarantined prototype: added SkillOps governance with `skills.lock.json`, `skills.registry.json`, and `skills.evals.json`.
 - Quarantined prototype: added approval-gated controlled apply pipeline.

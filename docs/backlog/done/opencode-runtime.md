@@ -1,6 +1,6 @@
 # Backlog: OpenCode Runtime Consolidation
 
-Status: Done for initial baseline. Merged in `5025474 Characterize OpenCode runtime substrate`.
+Status: Done for initial baseline. Merged in `5025474 Characterize OpenCode runtime substrate`; later cleanup removed live direct provider CLI execution paths.
 
 ## Objective
 
@@ -9,7 +9,7 @@ Make OpenCode CLI the explicit primary execution substrate for `runtime-agents` 
 ## Facts and evidence
 
 - ADR 0001 is accepted and says OpenCode should own model/runtime execution while `runtime-agents` owns orchestration and policy.
-- Current `agentctl` execution still has direct runtime paths for Codex, Claude, and Gemini.
+- Current `agentctl` execution now uses OpenCode as the supported live substrate.
 - The repo has profile/tool/guardrail metadata from `v1.5.1`; that metadata should stay above the execution substrate.
 - `assistant-route` and `assistant-exec` are deterministic and typed; they should not become model routers.
 - `agentd` is intentionally dumb and should keep shelling through `agentctl run-next` rather than learning OpenCode-specific behavior.
@@ -19,7 +19,7 @@ Make OpenCode CLI the explicit primary execution substrate for `runtime-agents` 
 
 1. Add or formalize an OpenCode execution adapter/path.
 2. Make OpenCode the documented default execution substrate.
-3. Keep direct Codex/Claude/Gemini support only as legacy/compatibility unless a future ADR reverses this.
+3. Remove active direct provider CLI support unless a future ADR reverses this.
 4. Preserve current queue/task/run artifacts:
    - `tasks.jsonl`
    - `queue.jsonl`
@@ -34,10 +34,10 @@ Make OpenCode CLI the explicit primary execution substrate for `runtime-agents` 
 ## Non-goals
 
 - Do not build a new direct multi-runtime router.
-- Do not expand Codex/Claude/Gemini adapters.
+- Do not expand direct provider-specific adapters.
 - Do not make Telegram a direct OpenCode shell.
 - Do not solve AMH integration in this track.
-- Do not remove legacy adapters before migration docs and tests exist.
+- Do not reintroduce direct provider-specific adapters without a future ADR.
 
 ## Phases
 
@@ -45,7 +45,7 @@ Make OpenCode CLI the explicit primary execution substrate for `runtime-agents` 
 
 - Inventory `run`, `iterate`, `run-next`, `agentd`, profile run/plan, assistant execution, and Telegram submission paths.
 - Record which config fields currently choose runtime/tool/model.
-- Add regression tests for current direct-runtime compatibility before changing defaults.
+- Add regression tests for current substrate behavior before changing defaults.
 
 Baseline artifact:
 
@@ -76,25 +76,24 @@ agentctl tool validate --json
 Acceptance:
 
 - A test config can run an OpenCode-backed agent through `agentctl run`.
-- Existing direct-runtime tests still pass.
+- OpenCode-backed execution tests pass.
 
 ### Phase 2 - Make OpenCode the default packaged substrate
 
 - Update default agent config to prefer OpenCode.
 - Update doctor/selftest so OpenCode is primary health check.
-- Move Codex/Claude/Gemini direct checks to legacy/deep diagnostics.
+- Remove direct provider CLI checks from primary health paths.
 - Update README and architecture docs.
 
 Acceptance:
 
 - Fresh default config validates with OpenCode as expected substrate.
-- Missing direct Codex/Claude/Gemini CLIs does not fail primary health if OpenCode is healthy.
+- Missing direct provider CLIs does not fail health if OpenCode is healthy.
 
-### Phase 3 - Quarantine direct runtime adapters
+### Phase 3 - Remove direct runtime adapters
 
-- Rename or wrap direct adapter code as legacy compatibility.
-- Emit metadata/warnings for legacy direct runtime use.
-- Keep tests proving legacy use remains bounded.
+- Remove direct adapter code from live execution.
+- Keep tests proving direct provider tool values are unsupported.
 - Stop presenting direct adapters as primary docs path.
 
 ### Phase 4 - OpenCode-aware telemetry and UX
@@ -107,13 +106,13 @@ Acceptance:
 
 - OpenCode CLI may not map cleanly onto current autonomy modes.
 - Renaming `tool` to `execution_substrate` could create config churn.
-- Keeping direct adapters visible may undermine the pivot.
-- Removing direct adapters too early could break local workflows.
+- Reintroducing direct adapters could undermine the pivot.
+- Removing direct adapters can break local configs that still reference old tools; update configs to `opencode`.
 
 ## Dependencies
 
 - OpenCode CLI non-interactive command contract.
-- Current `agents.yaml` shape and migration policy.
+- Current `agents.yaml` shape and OpenCode migration policy.
 - `track/docs-roadmap-self-improvement` for docs alignment.
 - `track/telegram-main-agent` for future delegation UX.
 
@@ -121,5 +120,5 @@ Acceptance:
 
 - OpenCode is default documented execution substrate.
 - `agentctl run`, `iterate`, `run-next`, and profile dry-run work with OpenCode-backed config.
-- Direct adapters are clearly legacy.
+- Direct adapters are gone from live execution and explicitly unsupported.
 - Test suite, smoke, doctor, and selftest pass.
