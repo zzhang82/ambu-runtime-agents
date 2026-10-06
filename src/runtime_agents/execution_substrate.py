@@ -25,11 +25,20 @@ def classify_agent_execution(agent_cfg: dict[str, Any]) -> dict[str, Any]:
     raise ValueError(f"Unsupported execution substrate: {tool}")
 
 
-def build_opencode_exec_command(model: str | None, prompt: str, *, autonomy: str = "read_only", opencode_agent: str | None = None) -> list[str]:
+def build_opencode_exec_command(
+    model: str | None,
+    prompt: str,
+    *,
+    autonomy: str = "read_only",
+    opencode_agent: str | None = None,
+    variant: str | None = None,
+) -> list[str]:
     """Return the non-interactive OpenCode command contract."""
     cmd = ["opencode", "run"]
     if model:
         cmd += ["--model", model]
+    if variant:
+        cmd += ["--variant", variant]
     if opencode_agent:
         cmd += ["--agent", opencode_agent]
     cmd.append(prompt)

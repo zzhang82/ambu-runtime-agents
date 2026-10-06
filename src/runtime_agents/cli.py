@@ -32,6 +32,7 @@ from runtime_agents import state as state_mod
 from runtime_agents import tools_registry as tools_registry_mod
 from runtime_agents import quota_watcher as quota_watcher_mod
 from runtime_agents import loop_engine as loop_engine_mod
+from runtime_agents import slim_bridge as slim_bridge_mod
 from runtime_agents.events import EventCapture
 from runtime_agents.models import TASK_STATUSES as MODEL_TASK_STATUSES
 
@@ -118,7 +119,8 @@ def load_config():
     if yaml is None:
         raise SystemExit("PyYAML is required: python3 -m pip install --user pyyaml")
     with CONFIG_PATH.open("r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
+        data = yaml.safe_load(f) or {}
+    return slim_bridge_mod.overlay_slim_agents(data)
 
 
 def load_telegram_config():
@@ -780,9 +782,9 @@ def detect_approvals(config, agent_cfg, prompt):
     return policy_mod.detect_capabilities(prompt, allowed=required, patterns={k: (v or {}).get("patterns", []) for k, v in rules.items()})
 
 
-def build_command(tool, model, prompt, profile=None, autonomy="read_only", opencode_agent=None):
+def build_command(tool, model, prompt, profile=None, autonomy="read_only", opencode_agent=None, variant=None):
     if tool == "opencode":
-        return execution_substrate_mod.build_opencode_exec_command(model, prompt, autonomy=autonomy, opencode_agent=opencode_agent)
+        return execution_substrate_mod.build_opencode_exec_command(model, prompt, autonomy=autonomy, opencode_agent=opencode_agent, variant=variant)
     raise SystemExit(f"Unsupported tool: {tool}")
 
 
@@ -952,7 +954,15 @@ def execute_agent_attempts(agent_cfg, tool, model, prompt, autonomy, fallback, t
     final = None
     allow_fallback = bool(routing_fallbacks) or fallback
     for index, (profile, attempt_model) in enumerate(plans, start=1):
-        cmd = build_command(tool, attempt_model, prompt, profile=profile, autonomy=autonomy, opencode_agent=agent_cfg.get("opencode_agent"))
+        cmd = build_command(
+            tool,
+            attempt_model,
+            prompt,
+            profile=profile,
+            autonomy=autonomy,
+            opencode_agent=agent_cfg.get("opencode_agent"),
+            variant=agent_cfg.get("variant"),
+        )
         attempt = {
             "attempt": index,
             "profile": profile,
