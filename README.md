@@ -20,7 +20,7 @@
 Running autonomous coding agents directly inside a repository frequently hits three frustrating walls:
 
 1. **Blind runaway loops**: When an agent encounters an environment bug or an impossible test constraint, it repeatedly retries up to your round limit—rewriting the same code, producing the exact same error, and burning through model quota.
-2. **Arcane persona configuration**: OpenCode supports distinct specialist roles (`oracle`, `fixer`, `eli`, `designer`, `librarian`), but manually invoking them requires remembering custom CLI flags, configuration paths, and reasoning variants.
+2. **Arcane persona configuration**: OpenCode supports distinct specialist roles (`oracle`, `fixer`, `coder`, `designer`, `librarian`), but manually invoking them requires remembering custom CLI flags, configuration paths, and reasoning variants.
 3. **Ungated permissions**: Agents run without safety gates, risking accidental `git push` commands, unintended deployments, secret leakage, or destructive file deletions.
 
 **Ambu wraps `opencode run` as an intelligent supervisor:** it selects the right persona from your prompt, enforces policy guardrails, runs non-interactive execution, and validates every code modification against your test suite.
@@ -59,16 +59,65 @@ $ agentctl iterate coder "Fix auth token expiration" \
 
 ---
 
+## Architecture: The Michelin Kitchen Workflow
+
+Ambu structures autonomous agent operations like a **Michelin-star kitchen brigade** (Brigade de Cuisine):
+
+```
+                        User Order Ticket
+                               │
+                        ┌──────▼──────┐
+                        │ agentctl do │  (Head Chef / Order Dispatch)
+                        └──────┬──────┘
+                               │
+         ┌─────────────────────┼─────────────────────┐
+         ▼                     ▼                     ▼
+   [ oracle ]             [ fixer / coder ]      [ designer / librarian ]
+   Chef de Cuisine        Saucier / Line Cook    Pâtissier / Garde Manger
+   (Architecture/Audit)   (Code Repair/Features) (UI Layout / Docs Prep)
+         │                     │                     │
+         └─────────────────────┼─────────────────────┘
+                               │  Dish / Workspace Patch
+                        ┌──────▼──────────┐
+                        │ agentctl iterate│  (The Pass / Expeditor)
+                        ├─────────────────┤
+                        │ - Run check cmd │
+                        │ - Taste & audit │
+                        │ - Hash errors   │
+                        │ - Halt loops!   │
+                        └──────┬──────────┘
+                               │
+                  ┌────────────┴────────────┐
+                  ▼                         ▼
+            [ Pass Plate ]            [ Stop Line ]
+           Status: completed        Status: blocked (exit 3)
+```
+
+1. **Head Chef (`agentctl do`)**: Reads the incoming order ticket. Analyzes intent, detects negative constraints, and dispatches the work to the right specialist station.
+2. **Kitchen Stations (OMO-Slim Roles)**:
+   - **`oracle` (Chef de Cuisine)**: Architectural design, deep troubleshooting, security audits, and risk assessment (`read_only`).
+   - **`fixer` (Saucier / Line Cook)**: Rapid bug fixes and bounded code patches (`workspace_write`).
+   - **`coder` (Station Cook)**: Full feature implementation and new endpoint scaffolding (`workspace_write`).
+   - **`designer` (Pâtissier)**: Visual presentation, UI/UX aesthetics, CSS layout, and responsive polish (`read_only`).
+   - **`librarian` (Garde Manger)**: Cold pantry prep; retrieves documentation, library specs, and API references (`read_only`).
+   - **`explorer` (Commis)**: Fast codebase reconnaissance, symbol search, and file discovery (`read_only`).
+3. **The Pass (`agentctl iterate`)**: The expeditor station where no code leaves without passing rigorous acceptance criteria (`--check` and `--eval-artifact`).
+   - If the dish fails, exact feedback is returned to the station.
+   - **Anti-Loop**: If a station produces the exact same failure twice in a row, the pass halts immediately (`status: blocked`, exit code 3) to prevent burning API quota.
+4. **Scullery & Hygiene (`agentctl doctor`)**: Verifies tool bindings, audits permissions, and keeps the workspace clean of stale artifacts.
+
+---
+
 ## Core Capabilities
 
 ### 1. Smart Intent Routing (`agentctl do`)
-You don't need to remember whether a task belongs to `oracle`, `fixer`, or `eli`. Ambu uses word-boundary intent classification to route your prompt to the right OpenCode persona:
+You don't need to remember arcane persona flags. Ambu uses word-boundary intent classification to route your prompt to the right kitchen station:
 
-| Prompt Intent | Selected Role | Autonomy | Model Frame |
+| Prompt Intent | Kitchen Station | Autonomy | Responsibility |
 |---|---|---|---|
-| *"Review the database migrations for table lock risks"* | **`oracle`** | `read_only` | Deep reasoning / audit |
-| *"Fix the broken auth login logic"* | **`fixer`** | `workspace_write` | Fast implementation |
-| *"Implement the Stripe webhook billing endpoint"* | **`eli`** | `workspace_write` | Scoped feature build |
+| *"Review database migrations for table lock risks"* | **`oracle`** | `read_only` | Architectural audit & diagnosis |
+| *"Fix the broken auth login logic"* | **`fixer`** | `workspace_write` | Fast bug repair & patch |
+| *"Implement the Stripe webhook billing endpoint"* | **`coder`** | `workspace_write` | Feature implementation |
 | *"Make the navbar responsive with CSS layout"* | **`designer`** | `read_only` | UI/UX design & styling |
 | *"Find documentation for Upstash Redis"* | **`librarian`** | `read_only` | Docs & reference research |
 

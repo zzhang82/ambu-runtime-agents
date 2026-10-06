@@ -55,10 +55,10 @@ class IntentRouterTests(unittest.TestCase):
         self.assertIsNotNone(res["advisory"])
         self.assertIn("--check", res["advisory"])
 
-    def test_implement_intent_routes_to_eli(self):
+    def test_implement_intent_routes_to_coder(self):
         res = intent_router.classify_intent("Implement new endpoint for billing invoices", AVAILABLE_AGENTS)
         self.assertEqual(res["intent"], "implement")
-        self.assertEqual(res["selected_agent"], "eli")
+        self.assertEqual(res["selected_agent"], "coder")
         self.assertEqual(res["autonomy"], "workspace_write")
 
     # Klaus Adversarial Corpus Tests
