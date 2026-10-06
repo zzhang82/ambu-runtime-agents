@@ -1,0 +1,123 @@
+# Default Ambu Agent Configuration (Michelin Kitchen Brigade)
+# Edit ~/.config/runtime-agents/agents.yaml to customize models, tools, and permissions.
+
+models:
+  primary: local/gpt-5.5
+  fallbacks:
+    - local/gpt-5.4
+  cheap: local/gemini-3.8-flash-high
+
+tools:
+  opencode:
+    command: opencode
+
+default_readonly_agent: oracle
+
+agents:
+  oracle:
+    tool: opencode
+    model: local/gpt-6-astra
+    routing_frame: review
+    opencode_agent: oracle
+    autonomy: read_only
+    approval_required:
+      - workspace_write
+      - git_push
+      - deploy
+
+  fixer:
+    tool: opencode
+    model: local/grok-4.7-build-fast
+    routing_frame: implementation_ready
+    opencode_agent: fixer
+    autonomy: workspace_write
+    approval_required:
+      - git_push
+      - deploy
+      - secrets
+      - global_config
+      - destructive_delete
+      - global_install
+
+  coder:
+    tool: opencode
+    model: local/grok-4.7-build-fast
+    routing_frame: implementation_ready
+    opencode_agent: build
+    autonomy: workspace_write
+    approval_required:
+      - git_push
+      - deploy
+      - secrets
+      - global_config
+      - destructive_delete
+      - global_install
+
+  designer:
+    tool: opencode
+    model: local/grok-4.7
+    routing_frame: design_planning
+    opencode_agent: designer
+    autonomy: read_only
+    approval_required:
+      - workspace_write
+      - git_push
+      - deploy
+
+  librarian:
+    tool: opencode
+    model: local/gpt-6-luna
+    routing_frame: bounded_work
+    opencode_agent: librarian
+    autonomy: read_only
+    approval_required:
+      - workspace_write
+      - git_push
+      - deploy
+
+  explorer:
+    tool: opencode
+    model: local/gemini-3.8-flash-high
+    routing_frame: recon
+    opencode_agent: explorer
+    autonomy: read_only
+    approval_required:
+      - workspace_write
+      - git_push
+      - deploy
+
+capability_rules:
+  git_push:
+    patterns:
+      - push
+      - git push
+  deploy:
+    patterns:
+      - deploy
+  secrets:
+    patterns:
+      - api key
+      - secret
+      - password
+      - .env
+      - credentials
+  global_config:
+    patterns:
+      - ~/.config
+      - ~/.ssh
+      - ~/.bashrc
+      - ~/.zshrc
+      - global config
+  destructive_delete:
+    patterns:
+      - rm -rf /
+      - rm -rf ~
+      - find * -delete
+      - delete everything
+  global_install:
+    patterns:
+      - npm install -g
+      - pip install --user
+      - sudo apt install
+      - brew install
+      - global install

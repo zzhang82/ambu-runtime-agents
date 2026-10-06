@@ -106,6 +106,52 @@ Ambu structures autonomous agent operations like a **Michelin-star kitchen briga
    - **Anti-Loop**: If a station produces the exact same failure twice in a row, the pass halts immediately (`status: blocked`, exit code 3) to prevent burning API quota.
 4. **Scullery & Hygiene (`agentctl doctor`)**: Verifies tool bindings, audits permissions, and keeps the workspace clean of stale artifacts.
 
+### How Does a First-Time Installer Get These Roles & Models?
+
+You do not need to configure complex YAML files just to get started:
+
+- **Option A: Zero-Config with `oh-my-opencode-slim` (Recommended)**  
+  If you already use [oh-my-opencode-slim](https://github.com/carlg/oh-my-opencode-slim), Ambu’s `slim_bridge` automatically inspects `~/.config/opencode/oh-my-opencode-slim.json`. It dynamically inherits your active preset's model assignments, reasoning variants (`xhigh`, `max`), and skill bindings with zero manual setup.
+- **Option B: Out-of-the-Box Packaged Defaults (`default_agents.yaml`)**  
+  On a fresh installation without OMO-Slim, Ambu ships with ready-to-use brigade defaults mapping stations to cost-effective model tiers:
+  - **`review` tier (`oracle`)**: High-reasoning models (e.g. `gpt-6-astra`, `claude-sonnet`, `o1`).
+  - **`implementation_ready` tier (`fixer`, `coder`)**: Fast, deterministic coding models (e.g. `grok-4.7-build-fast`, `gpt-5.5`).
+  - **`design_planning` tier (`designer`)**: Multimodal / frontend styling models.
+  - **`bounded_work` tier (`librarian`)**: High-throughput reference & retrieval models.
+  - **`recon` tier (`explorer`)**: Low-cost, fast scanning models (e.g. `gemini-3.8-flash-high`).
+- **Option C: Custom `agents.yaml`**  
+  Create or customize `~/.config/runtime-agents/agents.yaml` to pin any specific local or API models configured in your OpenCode setup.
+
+---
+
+## 🧠 Shared Memory: Connecting with [Agent Memory Bridge (AMB)](https://github.com/zzhang82/Agent-Memory-Bridge)
+
+In a Michelin kitchen, stations do not work in isolation. The brigade maintains a **Recipe Book & 86-Board (Incident Log)**: recording successful techniques, noting tricky ingredient quirks, and posting past mistakes so no cook repeats an error.
+
+Ambu integrates natively with [Agent Memory Bridge (AMB)](https://github.com/zzhang82/Agent-Memory-Bridge) as its durable, governed memory layer:
+
+<p align="center">
+  <a href="https://github.com/zzhang82/Agent-Memory-Bridge">
+    <img src="https://img.shields.io/badge/Memory%20Substrate-Agent--Memory--Bridge%20(AMB)-blueviolet?style=for-the-badge&logo=sqlite" alt="AMB Integration">
+  </a>
+</p>
+
+### How Ambu + AMB Work Together
+
+1. **Automatic Memory Recall Before Tasks**:  
+   Whenever you run `agentctl do` or `agentctl iterate` inside a workspace, Ambu automatically queries AMB for stored gotchas, architectural decisions, and repository procedures matching your goal. Relevant records are prepended directly into the OpenCode agent's context prelude:
+   ```text
+   [Relevant Project Memory]
+   Source: AMB record mem_8f2a1b9c (kind: gotcha)
+   Claim: Auth token mock in tests requires setting TEST_JWT_SECRET environment variable.
+   ```
+2. **Cross-Station Mistake Sharing**:  
+   If the `fixer` spends two rounds discovering that a database fixture requires a specific flag, that lesson can be stored to AMB (`agentMemoryBridge_store`). Tomorrow, when `coder` or `oracle` touches the same workspace, they inherit that insight on Round 0.
+3. **Health & Verification**:  
+   - `agentctl amb-health`: Inspects the active MCP stdio bridge connection and verifies memory tool availability.
+   - `agentctl doctor`: Automatically validates that your AMB memory substrate is responsive.
+   - `agentctl writeback`: Commits verified task outcomes, decisions, and lessons back into AMB after runs complete.
+
 ---
 
 ## Core Capabilities

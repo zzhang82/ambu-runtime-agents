@@ -42,7 +42,7 @@ package-dir = {"" = "src"}
 include-package-data = true
 
 [tool.setuptools.package-data]
-runtime_agents = ["default_profiles.yaml", "default_tools.yaml", "default_runbooks/*.md"]
+runtime_agents = ["default_profiles.yaml", "default_tools.yaml", "default_agents.yaml", "default_runbooks/*.md"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

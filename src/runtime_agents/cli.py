@@ -119,6 +119,13 @@ def now_iso():
 def load_config():
     if yaml is None:
         raise SystemExit("PyYAML is required: python3 -m pip install --user pyyaml")
+    if not CONFIG_PATH.exists():
+        pkg_default = Path(__file__).resolve().parent / "default_agents.yaml"
+        if pkg_default.exists():
+            with pkg_default.open("r", encoding="utf-8") as f:
+                data = yaml.safe_load(f) or {}
+            return slim_bridge_mod.overlay_slim_agents(data)
+        return slim_bridge_mod.overlay_slim_agents({})
     with CONFIG_PATH.open("r", encoding="utf-8") as f:
         data = yaml.safe_load(f) or {}
     return slim_bridge_mod.overlay_slim_agents(data)
