@@ -28,6 +28,10 @@ def make_env(base_dir: Path):
         "telegram:\n  enabled: false\n  bot_token_env: RUNTIME_AGENTS_TELEGRAM_BOT_TOKEN\n  allowed_user_ids: []\n",
         encoding="utf-8",
     )
+    (config_home / "workspaces.yaml").write_text(
+        yaml.safe_dump({"test-ws": {"path": str(base_dir)}}),
+        encoding="utf-8",
+    )
     agents = {
         "models": {"primary": "local/gpt-5.5", "fallbacks": ["local/gpt-5.4"], "cheap": "local/gpt-5.4-mini"},
         "amb": {"mode": "mcp_stdio", "command": sys.executable, "args": ["-c", "print('ok')"]},
@@ -153,6 +157,64 @@ class IterateIntegrationTests(unittest.TestCase):
         self.assertEqual(payload["status"], "completed")
         self.assertEqual(payload["rounds"], 1)
         self.assertTrue(payload["final_check_passed"])
+
+    def test_iterate_eval_artifact_only_completes_when_created(self):
+        target = self.tempdir / "dist" / "app.bundle"
+        custom_bin = self.tempdir / "bin2"
+        custom_bin.mkdir()
+        fake_creator = custom_bin / "opencode"
+        fake_creator.write_text(f"#!/usr/bin/env bash\nmkdir -p '{target.parent}'\nprintf 'bundle-bytes' > '{target}'\nprintf 'OK\\n'\n", encoding="utf-8")
+        fake_creator.chmod(0o755)
+
+        env = self.env.copy()
+        env["PATH"] = str(custom_bin) + os.pathsep + env["PATH"]
+
+        # Run with --eval-artifact and NO --check
+        proc = run_cli([
+            "iterate", "coder", "build", "app",
+            "--eval-artifact", f"dist/app.bundle",
+            "--workspace", "test-ws",
+            "--max-rounds", "3",
+            "--json"
+        ], env)
+
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        payload = json.loads(proc.stdout)
+        self.assertEqual(payload["status"], "completed")
+        self.assertEqual(payload["rounds"], 1)
+        self.assertIn("dist/app.bundle", payload["eval_artifacts"])
+
+    def test_iterate_eval_artifact_fails_when_artifact_empty_even_if_check_passes(self):
+        empty_target = self.tempdir / "empty.artifact"
+        # Script creates an empty file and exits 0
+        custom_bin = self.tempdir / "bin3"
+        custom_bin.mkdir()
+        fake_empty = custom_bin / "opencode"
+        fake_empty.write_text(f"#!/usr/bin/env bash\ntouch '{empty_target}'\nprintf 'OK\\n'\n", encoding="utf-8")
+        fake_empty.chmod(0o755)
+
+        env = self.env.copy()
+        env["PATH"] = str(custom_bin) + os.pathsep + env["PATH"]
+
+        proc = run_cli([
+            "iterate", "coder", "build", "artifact",
+            "--check", "true",
+            "--eval-artifact", "empty.artifact",
+            "--max-rounds", "3",
+            "--max-same-failure", "2",
+            "--json"
+        ], env)
+
+        self.assertEqual(proc.returncode, 3)
+        payload = json.loads(proc.stdout)
+        self.assertEqual(payload["status"], "blocked")
+        self.assertIn("Evaluation artifact check failed", payload["gap_detail"])
+        # Check prompt in round 1 contains gap diagnosis
+        run_dir = Path(env["RUNTIME_AGENTS_STATE_HOME"]) / "runs" / payload["task_id"]
+        prompt_txt = (run_dir / "rounds" / "1" / "prompt.txt").read_text()
+        self.assertIn("Required evaluation artifacts:", prompt_txt)
+        self.assertIn("- empty.artifact", prompt_txt)
+        self.assertIn("[execution]", prompt_txt)
 
 
 if __name__ == "__main__":

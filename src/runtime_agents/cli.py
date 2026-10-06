@@ -14,6 +14,7 @@ import sys
 import time
 from pathlib import Path
 from datetime import datetime, timezone
+from typing import Any
 
 from runtime_agents import actions as actions_mod
 from runtime_agents import assistant_router as assistant_router_mod
@@ -666,6 +667,15 @@ def normalize_iterate_args(args):
             i += 1
         elif token.startswith("--check="):
             args.check = token.split("=", 1)[1]
+        elif token == "--eval-artifact" and i + 1 < len(tokens):
+            if getattr(args, "eval_artifact", None) is None:
+                args.eval_artifact = []
+            args.eval_artifact.append(tokens[i + 1])
+            i += 1
+        elif token.startswith("--eval-artifact="):
+            if getattr(args, "eval_artifact", None) is None:
+                args.eval_artifact = []
+            args.eval_artifact.append(token.split("=", 1)[1])
         elif token == "--max-rounds" and i + 1 < len(tokens):
             args.max_rounds = int(tokens[i + 1])
             i += 1
@@ -1658,8 +1668,9 @@ def iterate_cmd(args):
     goal = " ".join(args.goal).strip()
     if not goal:
         raise SystemExit("Goal is required")
-    if not args.check:
-        raise SystemExit("--check is required")
+    eval_artifacts = [a.strip() for a in getattr(args, "eval_artifact", []) if a and a.strip()]
+    if not args.check and not eval_artifacts:
+        raise SystemExit("Either --check or --eval-artifact is required")
 
     memory_opts = build_memory_options(
         config,
@@ -1684,7 +1695,12 @@ def iterate_cmd(args):
         })
         return 0
 
-    policy_text = f"{goal}\n{args.check}"
+    policy_parts = [goal]
+    if args.check:
+        policy_parts.append(args.check)
+    if eval_artifacts:
+        policy_parts.extend(eval_artifacts)
+    policy_text = "\n".join(policy_parts)
     approvals = detect_approvals(config, agent_cfg, policy_text)
     blocked = sorted(set(approvals) & ITERATE_BLOCKED_CAPABILITIES)
     approved = parse_approved(args.approve)
@@ -1705,6 +1721,7 @@ def iterate_cmd(args):
             "autonomy": autonomy,
             "goal": goal,
             "check": args.check,
+            "eval_artifacts": eval_artifacts,
             "max_rounds": args.max_rounds,
             "max_same_failure": getattr(args, "max_same_failure", 2) or 2,
             "approval_capabilities": approvals,
@@ -1733,6 +1750,7 @@ def iterate_cmd(args):
             "ended_at": now_iso(),
             "goal": goal,
             "check": args.check,
+            "eval_artifacts": eval_artifacts,
             "max_rounds": args.max_rounds,
             "rounds": 0,
             "final_check_passed": False,
@@ -1781,6 +1799,7 @@ def iterate_cmd(args):
         "ended_at": None,
         "goal": goal,
         "check": args.check,
+        "eval_artifacts": eval_artifacts,
         "max_rounds": args.max_rounds,
         "rounds": 0,
         "final_check_passed": False,
@@ -1800,14 +1819,32 @@ def iterate_cmd(args):
     append_task(base_meta)
     event_capture.set_run_id(tid)
 
+    def _run_evaluation(check_cmd: str | None, artifacts: list[str]) -> dict[str, Any]:
+        started_eval = now_iso()
+        res = {"started_at": started_eval, "ended_at": started_eval, "returncode": 0, "stdout": "", "stderr": ""}
+        if check_cmd:
+            event_capture.record_command(check_cmd)
+            try:
+                res = run_shell_check(check_cmd, run_cwd, args.check_timeout)
+            except subprocess.TimeoutExpired as exc:
+                return {"started_at": started_eval, "ended_at": now_iso(), "returncode": 124, "stdout": exc.stdout or "", "stderr": f"check timeout after {args.check_timeout}s"}
+        if res["returncode"] == 0 and artifacts:
+            ok, err = loop_engine_mod.check_eval_artifacts(run_cwd, artifacts)
+            if not ok:
+                sep = "\n" if res.get("stderr") else ""
+                res = {
+                    "started_at": res.get("started_at", started_eval),
+                    "ended_at": now_iso(),
+                    "returncode": 1,
+                    "stdout": res.get("stdout", ""),
+                    "stderr": f"{res.get('stderr', '')}{sep}Evaluation artifact check failed: {err}",
+                }
+        return res
+
     round_results = []
     initial_dir = rounds_dir / "0"
     initial_dir.mkdir(parents=True, exist_ok=True)
-    try:
-        event_capture.record_command(args.check)
-        check_result = run_shell_check(args.check, run_cwd, args.check_timeout)
-    except subprocess.TimeoutExpired as exc:
-        check_result = {"started_at": now_iso(), "ended_at": now_iso(), "returncode": 124, "stdout": exc.stdout or "", "stderr": f"check timeout after {args.check_timeout}s"}
+    check_result = _run_evaluation(args.check, eval_artifacts)
     initial_fp = loop_engine_mod.fingerprint_check_failure(check_result.get("stdout", ""), check_result.get("stderr", ""), check_result.get("returncode", 1))
     initial_gap, initial_gap_detail = loop_engine_mod.classify_gap(check_result.get("stdout", ""), check_result.get("stderr", ""), check_result.get("returncode", 1))
     (initial_dir / "check-stdout.log").write_text(check_result["stdout"], encoding="utf-8")
@@ -1822,7 +1859,7 @@ def iterate_cmd(args):
     })
     if check_result["returncode"] == 0:
         meta = {**base_meta, "status": "completed", "ended_at": now_iso(), "rounds": 0, "final_check_passed": True}
-        result = {"task_id": tid, "status": "completed", "agent": args.agent, "rounds": 0, "max_rounds": args.max_rounds, "check": args.check, "final_check_passed": True}
+        result = {"task_id": tid, "status": "completed", "agent": args.agent, "rounds": 0, "max_rounds": args.max_rounds, "check": args.check, "eval_artifacts": eval_artifacts, "final_check_passed": True}
         if getattr(args, "tail", None) is not None:
             result["check_stdout_tail"] = tail_lines(check_result.get("stdout", ""), args.tail)
             result["check_stderr_tail"] = tail_lines(check_result.get("stderr", ""), args.tail)
@@ -1858,26 +1895,16 @@ def iterate_cmd(args):
         routing_fallbacks = [] if routing.get("explicit_override") else list(routing.get("fallbacks") or [])
         rd = rounds_dir / str(round_num)
         rd.mkdir(parents=True, exist_ok=True)
-        if autonomy == "read_only":
-            action_instruction = "Analyze the failure and report the likely cause and next safe action. Do not edit files or attempt to fix the workspace."
-        else:
-            action_instruction = "Fix the workspace locally so the check passes. Do not push, deploy, edit global config, touch secrets, install global packages, or delete outside the workspace."
-        prompt = f"""Goal:
-{effective_goal}
-
-Check command:
-{args.check}
-
-The check failed. {action_instruction}
-
-Previous check stdout:
-{tail_text(last_check.get('stdout', ''))}
-
-Previous check stderr:
-{tail_text(last_check.get('stderr', ''))}
-
-Shared tool guidance: if your runtime exposes Agent Memory Bridge, Context7, or Playwright tools, use them as evidence lanes when relevant. Prefer Agent Memory Bridge for project/domain memory, Context7 for current library docs, and Playwright for browser/UI validation. Do not assume those tools exist; proceed with local files and commands when unavailable.
-""".strip()
+        prompt = loop_engine_mod.build_iteration_prompt(
+            effective_goal,
+            args.check,
+            eval_artifacts,
+            tail_text(last_check.get("stdout", "")),
+            tail_text(last_check.get("stderr", "")),
+            last_gap,
+            last_gap_detail,
+            autonomy=autonomy,
+        )
         (rd / "prompt.txt").write_text(prompt + "\n", encoding="utf-8")
         attempts, final_attempt = execute_agent_attempts(
             agent_cfg,
@@ -1903,11 +1930,7 @@ Shared tool guidance: if your runtime exposes Agent Memory Bridge, Context7, or 
             write_json(rd / "result.json", round_result)
             round_results.append(round_result)
             break
-        try:
-            event_capture.record_command(args.check)
-            last_check = run_shell_check(args.check, run_cwd, args.check_timeout)
-        except subprocess.TimeoutExpired as exc:
-            last_check = {"started_at": now_iso(), "ended_at": now_iso(), "returncode": 124, "stdout": exc.stdout or "", "stderr": f"check timeout after {args.check_timeout}s"}
+        last_check = _run_evaluation(args.check, eval_artifacts)
         (rd / "stdout.log").write_text(final_attempt["stdout"], encoding="utf-8")
         (rd / "stderr.log").write_text(final_attempt["stderr"], encoding="utf-8")
         (rd / "check-stdout.log").write_text(last_check["stdout"], encoding="utf-8")
@@ -1980,6 +2003,7 @@ Shared tool guidance: if your runtime exposes Agent Memory Bridge, Context7, or 
         "max_rounds": args.max_rounds,
         "max_same_failure": max_same_failure,
         "check": args.check,
+        "eval_artifacts": eval_artifacts,
         "final_check_passed": final_check_passed,
         "gap_classification": last_gap,
         "gap_detail": last_gap_detail,
@@ -5530,6 +5554,7 @@ def main():
     iterate.add_argument("agent")
     iterate.add_argument("goal", nargs=argparse.REMAINDER)
     iterate.add_argument("--check")
+    iterate.add_argument("--eval-artifact", action="append", default=[], metavar="PATH")
     iterate.add_argument("--max-rounds", type=int, default=5)
     iterate.add_argument("--max-same-failure", type=int, default=2)
     iterate.add_argument("--model")

@@ -12,6 +12,7 @@ Extracted and adapted from agent-loop-runtime principles:
 from __future__ import annotations
 
 import hashlib
+from pathlib import Path
 import re
 from dataclasses import dataclass
 from typing import Any
@@ -138,6 +139,12 @@ def classify_gap(stdout: str, stderr: str, returncode: int) -> tuple[str, str]:
         if re.search(pattern, stderr_text, re.IGNORECASE):
             return "environment", "Missing system binary or tool dependency reported by shell"
 
+    # Check for evaluation artifact failure explicitly in stderr
+    if "evaluation artifact check failed:" in stderr_text.lower():
+        for line in stderr_text.splitlines():
+            if "evaluation artifact check failed:" in line.lower():
+                return "execution", line.strip()
+
     # Default: execution gap (the code under test failed an assertion or raised an error)
     return "execution", "Code execution or test assertion failure"
 
@@ -167,3 +174,75 @@ class RoundEvaluation:
     gap_detail: str
     repeated_count: int
     halted: bool = False
+
+
+def check_eval_artifacts(run_cwd: Path, artifacts: list[str]) -> tuple[bool, str]:
+    """Verify that all declared evaluation artifacts exist and are non-empty regular files.
+
+    Returns:
+    (all_passed, error_message)
+    """
+    if not artifacts:
+        return True, ""
+
+    root = run_cwd.resolve()
+    for rel_path in artifacts:
+        if not rel_path or not rel_path.strip():
+            continue
+        clean = rel_path.strip()
+        p = (root / clean).resolve()
+        if not p.is_relative_to(root):
+            return False, f"Evaluation artifact path escapes workspace: {clean}"
+        if not p.exists():
+            return False, f"Required evaluation artifact does not exist: {clean}"
+        if not p.is_file():
+            return False, f"Required evaluation artifact is not a regular file: {clean}"
+        if p.stat().st_size == 0:
+            return False, f"Required evaluation artifact is empty (0 bytes): {clean}"
+
+    return True, ""
+
+
+def build_iteration_prompt(
+    effective_goal: str,
+    check_command: str | None,
+    eval_artifacts: list[str] | None,
+    last_stdout: str,
+    last_stderr: str,
+    gap_kind: str,
+    gap_detail: str,
+    autonomy: str = "workspace_write",
+) -> str:
+    """Construct a gap-aware prompt tailored to the diagnosed failure category."""
+    if autonomy == "read_only":
+        action_instruction = "Analyze the failure and report the likely cause and next safe action. Do not edit files or attempt to fix the workspace."
+    elif gap_kind == "environment":
+        action_instruction = f"The check failed due to a missing dependency or system binary in the environment: {gap_detail}. Analyze whether this is fixable within workspace authority or if an alternative local approach/tool is needed."
+    elif gap_kind == "check_rubric":
+        action_instruction = f"The check command itself failed to execute properly: {gap_detail}. Inspect the command path, syntax, or binary."
+    elif gap_kind == "transient":
+        action_instruction = f"The check encountered a transient error: {gap_detail}. Verify connectivity or retry safely without corrupting the workspace."
+    else:
+        action_instruction = "Fix the workspace locally so the check passes. Do not push, deploy, edit global config, touch secrets, install global packages, or delete outside the workspace."
+
+    sections = [
+        f"Goal:\n{effective_goal.strip()}",
+    ]
+    if check_command:
+        sections.append(f"Check command:\n{check_command.strip()}")
+    if eval_artifacts:
+        arts_str = "\n".join(f"- {a}" for a in eval_artifacts)
+        sections.append(f"Required evaluation artifacts:\n{arts_str}")
+
+    sections.append(f"Failure diagnosis:\n[{gap_kind}] {gap_detail}\n\n{action_instruction}")
+
+    if last_stdout and last_stdout.strip():
+        sections.append(f"Previous check stdout:\n{last_stdout.strip()}")
+    if last_stderr and last_stderr.strip():
+        sections.append(f"Previous check stderr:\n{last_stderr.strip()}")
+
+    sections.append(
+        "Shared tool guidance: if your runtime exposes Agent Memory Bridge, Context7, or Playwright tools, use them as evidence lanes when relevant. Prefer Agent Memory Bridge for project/domain memory, Context7 for current library docs, and Playwright for browser/UI validation. Do not assume those tools exist; proceed with local files and commands when unavailable."
+    )
+
+    return "\n\n".join(sections)

@@ -113,6 +113,67 @@ class LoopEngineTests(unittest.TestCase):
         halt, counts, _ = loop_engine.should_halt("fp1", counts, max_same_failure=2)
         self.assertTrue(halt, "Cumulative identical failure must trigger halt")
 
+    def test_check_eval_artifacts_validation(self):
+        import tempfile
+        import shutil
+        from pathlib import Path
+
+        tmp = Path(tempfile.mkdtemp())
+        try:
+            # Empty list passes
+            ok, err = loop_engine.check_eval_artifacts(tmp, [])
+            self.assertTrue(ok)
+            self.assertEqual(err, "")
+
+            # Non-existent file fails
+            ok, err = loop_engine.check_eval_artifacts(tmp, ["dist/bundle.js"])
+            self.assertFalse(ok)
+            self.assertIn("does not exist", err)
+
+            # Empty file fails
+            (tmp / "empty.txt").write_text("", encoding="utf-8")
+            ok, err = loop_engine.check_eval_artifacts(tmp, ["empty.txt"])
+            self.assertFalse(ok)
+            self.assertIn("empty (0 bytes)", err)
+
+            # Valid non-empty file passes
+            (tmp / "valid.json").write_text('{"status": "ok"}\n', encoding="utf-8")
+            ok, err = loop_engine.check_eval_artifacts(tmp, ["valid.json"])
+            self.assertTrue(ok)
+            self.assertEqual(err, "")
+
+            # Path traversal escaping workspace fails
+            ok, err = loop_engine.check_eval_artifacts(tmp, ["../outside.txt"])
+            self.assertFalse(ok)
+            self.assertIn("escapes workspace", err)
+        finally:
+            shutil.rmtree(tmp)
+
+    def test_build_iteration_prompt_tailors_to_gap_kind(self):
+        # Environment gap
+        p_env = loop_engine.build_iteration_prompt(
+            "setup project", "cargo build", ["dist/app"], "", "bash: cargo: not found",
+            "environment", "Missing system binary", "workspace_write"
+        )
+        self.assertIn("[environment]", p_env)
+        self.assertIn("missing dependency or system binary", p_env)
+        self.assertIn("dist/app", p_env)
+
+        # Check rubric gap
+        p_rubric = loop_engine.build_iteration_prompt(
+            "run check", "invalid_cmd", None, "", "",
+            "check_rubric", "Exit 127", "workspace_write"
+        )
+        self.assertIn("[check_rubric]", p_rubric)
+        self.assertIn("check command itself failed to execute", p_rubric)
+
+        # Read-only autonomy
+        p_ro = loop_engine.build_iteration_prompt(
+            "analyze problem", "pytest", None, "", "AssertionError",
+            "execution", "Test failed", "read_only"
+        )
+        self.assertIn("Do not edit files", p_ro)
+
 
 if __name__ == "__main__":
     unittest.main()
