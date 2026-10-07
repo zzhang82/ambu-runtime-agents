@@ -1049,7 +1049,7 @@ def execute_agent_attempts(agent_cfg, tool, model, prompt, autonomy, fallback, t
     final = None
     allow_fallback = bool(routing_fallbacks) or fallback
     role_label = agent_cfg.get("opencode_agent") or "agent"
-    effective_timeout = timeout or 180
+    effective_timeout = timeout or 600
 
     for index, (profile, attempt_model) in enumerate(plans, start=1):
         cmd = build_command(
