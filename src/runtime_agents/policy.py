@@ -99,3 +99,18 @@ def classify_failure(stdout: str, stderr: str, returncode: int) -> str | None:
     if any(m in out_text for m in out_markers):
         return "transient_model_error"
     return None
+
+
+def compute_backoff_delay(attempt: int, stderr: str = "", base_delay: float = 1.0, max_delay: float = 30.0) -> float:
+    """Compute bounded exponential backoff delay in seconds for transient errors."""
+    import re
+    match = re.search(r'(?:retry-after|retry after)[:\s]+(\d+)', stderr or "", re.IGNORECASE)
+    if match:
+        try:
+            return min(float(match.group(1)), max_delay)
+        except ValueError:
+            pass
+    delay = base_delay * (2 ** max(0, attempt - 1))
+    import random
+    jitter = random.uniform(0.05, 0.25)
+    return min(delay + jitter, max_delay)

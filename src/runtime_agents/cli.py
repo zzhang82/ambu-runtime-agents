@@ -901,9 +901,17 @@ def detect_approvals(config, agent_cfg, prompt):
     return policy_mod.detect_capabilities(prompt, allowed=required, patterns={k: (v or {}).get("patterns", []) for k, v in rules.items()})
 
 
-def build_command(tool, model, prompt, profile=None, autonomy="read_only", opencode_agent=None, variant=None):
+def build_command(tool, model, prompt, profile=None, autonomy="read_only", opencode_agent=None, variant=None, session_id=None, fork=False):
     if tool == "opencode":
-        return execution_substrate_mod.build_opencode_exec_command(model, prompt, autonomy=autonomy, opencode_agent=opencode_agent, variant=variant)
+        return execution_substrate_mod.build_opencode_exec_command(
+            model,
+            prompt,
+            autonomy=autonomy,
+            opencode_agent=opencode_agent,
+            variant=variant,
+            session_id=session_id,
+            fork=fork,
+        )
     raise SystemExit(f"Unsupported tool: {tool}")
 
 
@@ -1064,7 +1072,40 @@ def parse_tools_from_stdout(stdout):
     return sorted(list(set(mcp_tools + opencode_tools + calling_tools)))
 
 
-def execute_agent_attempts(agent_cfg, tool, model, prompt, autonomy, fallback, timeout, cwd=None, event_capture=None, routing_fallbacks=None, cooldown_seconds=900):
+def find_latest_opencode_session(start_ms: int, cwd: Path | str | None = None) -> str | None:
+    db = Path.home() / ".local" / "share" / "opencode" / "opencode.db"
+    if not db.is_file():
+        return None
+    try:
+        import sqlite3
+        conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT id FROM session WHERE time_created >= ? ORDER BY time_created DESC LIMIT 1",
+            (max(0, start_ms - 3000),)
+        )
+        row = cur.fetchone()
+        conn.close()
+        return row[0] if row else None
+    except Exception:
+        return None
+
+
+def execute_agent_attempts(
+    agent_cfg,
+    tool,
+    model,
+    prompt,
+    autonomy,
+    fallback,
+    timeout,
+    cwd=None,
+    event_capture=None,
+    routing_fallbacks=None,
+    cooldown_seconds=900,
+    session_id=None,
+    fork=False,
+):
     attempts = []
     plans: list[tuple[str | None, str]] = [(None, model)]
     if routing_fallbacks:
@@ -1078,16 +1119,24 @@ def execute_agent_attempts(agent_cfg, tool, model, prompt, autonomy, fallback, t
     allow_fallback = bool(routing_fallbacks) or fallback
     role_label = agent_cfg.get("opencode_agent") or "agent"
     effective_timeout = timeout if timeout and timeout > 0 else None
+    last_session_id = session_id
 
     for index, (profile, attempt_model) in enumerate(plans, start=1):
+        use_session = last_session_id if (last_session_id and (index > 1 or session_id)) else None
+        use_fork = fork if (index == 1 and session_id) else bool(use_session)
+        attempt_prompt = prompt if not use_session else (
+            prompt if index == 1 else f"The previous attempt on this task failed. Continuing on model '{attempt_model}' to achieve the goal: {prompt}"
+        )
         cmd = build_command(
             tool,
             attempt_model,
-            prompt,
+            attempt_prompt,
             profile=profile,
             autonomy=autonomy,
             opencode_agent=agent_cfg.get("opencode_agent"),
             variant=agent_cfg.get("variant"),
+            session_id=use_session,
+            fork=use_fork,
         )
         attempt = {
             "attempt": index,
@@ -1095,12 +1144,15 @@ def execute_agent_attempts(agent_cfg, tool, model, prompt, autonomy, fallback, t
             "model": attempt_model,
             "command": cmd[:],
         }
+        if use_session:
+            attempt["continued_from_session"] = use_session
         timeout_str = f"{effective_timeout}s" if effective_timeout else "unlimited"
         print(f"[{role_label}] Attempt {index}/{len(plans)}: Running on model '{attempt_model}' (timeout: {timeout_str})...", file=sys.stderr, flush=True)
         if event_capture:
             event_capture.record_command(" ".join(cmd))
             if tool:
                 event_capture.record_tool(tool)
+        start_ms = int(time.time() * 1000)
         try:
             result = run_command(cmd, cwd or Path.cwd(), effective_timeout)
             if event_capture:
@@ -1115,6 +1167,11 @@ def execute_agent_attempts(agent_cfg, tool, model, prompt, autonomy, fallback, t
                 "stdout": exc.stdout or "",
                 "stderr": f"timeout after {effective_timeout}s",
             }
+        sess_id = find_latest_opencode_session(start_ms, cwd)
+        if sess_id:
+            last_session_id = sess_id
+            attempt["session_id"] = sess_id
+
         attempt.update(result)
         attempts.append(attempt)
         if result["returncode"] == 0:
@@ -1133,6 +1190,9 @@ def execute_agent_attempts(agent_cfg, tool, model, prompt, autonomy, fallback, t
         model_catalog_mod.record_cooldown(attempt_model, "transient_model_error", cooldown_seconds)
         if index < len(plans):
             next_model = plans[index][1]
+            delay = policy_mod.compute_backoff_delay(index, stderr=result.get("stderr", ""))
+            print(f"[{role_label}] Transient rate limit/server error encountered. Backing off for {delay:.1f}s before fallback...", file=sys.stderr, flush=True)
+            time.sleep(delay)
             print(f"[{role_label}] Falling back to next candidate model: '{next_model}'...", file=sys.stderr, flush=True)
     if final is None and attempts:
         final = attempts[-1]
@@ -1734,6 +1794,10 @@ def run_task(args):
     run_dir.mkdir(parents=True, exist_ok=False)
     (run_dir / "prompt.txt").write_text(effective_prompt + "\n", encoding="utf-8")
 
+    resumed_from = getattr(args, "resumed_from_task_id", None)
+    initial_session_id = getattr(args, "session_id", None)
+    fork_session = getattr(args, "fork", False)
+
     base_meta = {
         "task_id": tid,
         "agent": args.agent,
@@ -1755,6 +1819,8 @@ def run_task(args):
         "workspace": getattr(args, "workspace", None),
         "memory_namespace": memory_namespace,
         "memory_recall": memory_recall,
+        "resumed_from": resumed_from,
+        "session_id": initial_session_id,
     }
     write_json(run_dir / "metadata.json", base_meta)
     append_task(base_meta)
@@ -1789,6 +1855,8 @@ def run_task(args):
         event_capture=event_capture,
         routing_fallbacks=routing_fallbacks,
         cooldown_seconds=cooldown_seconds,
+        session_id=initial_session_id,
+        fork=fork_session,
     )
     attempts, final = normalize_attempt_text_fields(attempts, final)
     for attempt in attempts:
@@ -1801,7 +1869,15 @@ def run_task(args):
     (run_dir / "stdout.log").write_text(final["stdout"], encoding="utf-8")
     (run_dir / "stderr.log").write_text(final["stderr"], encoding="utf-8")
     status = "completed" if final["returncode"] == 0 else "failed"
-    meta = {**base_meta, "status": status, "ended_at": now_iso(), "fallback_used": final["attempt"] > 1, "model": final["model"]}
+    recorded_session_id = final.get("session_id") or initial_session_id
+    meta = {
+        **base_meta,
+        "status": status,
+        "ended_at": now_iso(),
+        "fallback_used": final["attempt"] > 1,
+        "model": final["model"],
+        "session_id": recorded_session_id,
+    }
     write_json(run_dir / "metadata.json", meta)
     result_summary = {"task_id": tid, "status": status, "returncode": final["returncode"], "attempts": attempts}
     write_json(run_dir / "result.json", result_summary)
@@ -1811,6 +1887,57 @@ def run_task(args):
         print(f"[{args.agent}] Task {tid} finished with status '{status}' (exit {final['returncode']}).", file=sys.stderr, flush=True)
     print_json({"task_id": tid, "status": status, "model": final["model"], "run_dir": str(run_dir)})
     return final["returncode"]
+
+
+def resume_task_cmd(args):
+    task = latest_task(args.task_id)
+    run_dir = Path(task["run_dir"]) if task and task.get("run_dir") else (RUNS_DIR / args.task_id)
+    if not task:
+        meta_file = run_dir / "metadata.json"
+        if meta_file.is_file():
+            task = load_json_file(meta_file, {}) or {}
+    if not task:
+        raise SystemExit(f"Unknown task id: {args.task_id}")
+
+    session_id = task.get("session_id")
+    if not session_id and task.get("started_at"):
+        try:
+            start_dt = datetime.fromisoformat(task["started_at"].replace("Z", "+00:00"))
+            start_ms = int(start_dt.timestamp() * 1000)
+            session_id = find_latest_opencode_session(start_ms, task.get("cwd"))
+        except Exception:
+            session_id = None
+
+    if not session_id:
+        raise SystemExit(f"No OpenCode session recorded for task {args.task_id}. Cannot resume.")
+
+    target_model = getattr(args, "model", None) or task.get("model")
+    orig_goal = task.get("goal") or task.get("prompt") or ""
+    if isinstance(orig_goal, list):
+        orig_goal = " ".join(orig_goal)
+    resume_prompt = getattr(args, "prompt", None) or f"The previous attempt on this task failed or paused. Inspect current progress and continue to complete the goal: {orig_goal}"
+
+    if not getattr(args, "json", False):
+        print(f"Resuming task {args.task_id} on session '{session_id}' using model '{target_model}'...", file=sys.stderr, flush=True)
+
+    sub_args = argparse.Namespace(
+        agent=task.get("agent", "oracle"),
+        prompt=[resume_prompt],
+        model=target_model,
+        workspace=task.get("workspace"),
+        approve=getattr(args, "approve", []) or task.get("approved_capabilities", []),
+        fallback=getattr(args, "fallback", False),
+        timeout=getattr(args, "timeout", 0),
+        no_memory=True,
+        memory_query=None,
+        memory_preview=False,
+        dry_run=getattr(args, "dry_run", False),
+        json=getattr(args, "json", False),
+        session_id=session_id,
+        fork=getattr(args, "fork", True),
+        resumed_from_task_id=args.task_id,
+    )
+    return run_task(sub_args)
 
 
 def iterate_cmd(args):
@@ -3206,6 +3333,9 @@ def pause_cmd(args):
 
 
 def resume_cmd(args):
+    task_id = getattr(args, "task_id", None)
+    if task_id:
+        return resume_task_cmd(args)
     ensure_state()
     if PAUSED_FILE.exists():
         PAUSED_FILE.unlink()
@@ -5678,7 +5808,15 @@ def main():
     pause = sub.add_parser("pause")
     pause.set_defaults(func=pause_cmd)
 
-    resume = sub.add_parser("resume")
+    resume = sub.add_parser("resume", help="Resume an interrupted task, or unpause daemon if no task_id provided")
+    resume.add_argument("task_id", nargs="?", default=None, help="Task ID to resume with session")
+    resume.add_argument("--model", help="Alternative model to use for resumption")
+    resume.add_argument("--prompt", help="Continuation prompt")
+    resume.add_argument("--no-fork", dest="fork", action="store_false", default=True, help="Do not fork session")
+    resume.add_argument("--timeout", type=int, default=0)
+    resume.add_argument("--dry-run", action="store_true")
+    resume.add_argument("--json", action="store_true")
+    resume.add_argument("--approve", action="append", default=[], metavar="CAPABILITY")
     resume.set_defaults(func=resume_cmd)
 
     daemon_status = sub.add_parser("daemon-status")

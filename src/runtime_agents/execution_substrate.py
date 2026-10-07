@@ -32,9 +32,15 @@ def build_opencode_exec_command(
     autonomy: str = "read_only",
     opencode_agent: str | None = None,
     variant: str | None = None,
+    session_id: str | None = None,
+    fork: bool = False,
 ) -> list[str]:
     """Return the non-interactive OpenCode command contract."""
     cmd = ["opencode", "run"]
+    if session_id:
+        cmd += ["--session", session_id]
+        if fork:
+            cmd.append("--fork")
     if model:
         cmd += ["--model", model]
     if variant:

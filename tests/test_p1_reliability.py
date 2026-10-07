@@ -135,6 +135,36 @@ class P1ReliabilityTests(unittest.TestCase):
         # test assertion in stdout containing 429 must NOT be classified as transient model failure
         self.assertIsNone(policy.classify_failure("AssertionError: assert response.status_code == 429", "", 1))
 
+    def test_resume_task_routes_with_session_and_fork(self):
+        task_meta = {
+            "task_id": "test-task-1",
+            "agent": "oracle",
+            "model": "local/gpt-6-astra",
+            "goal": "inspect architecture",
+            "session_id": "ses_mock_999",
+            "workspace": "demo",
+        }
+        with patch.object(cli, "latest_task", return_value=task_meta), \
+             patch.object(cli, "run_task", return_value=0) as mock_run_task:
+            args = Mock(task_id="test-task-1", model="local/grok-4.7", prompt=None, fork=True)
+            rc = cli.resume_task_cmd(args)
+            self.assertEqual(rc, 0)
+            mock_run_task.assert_called_once()
+            called_sub_args = mock_run_task.call_args.args[0]
+            self.assertEqual(called_sub_args.model, "local/grok-4.7")
+            self.assertEqual(called_sub_args.session_id, "ses_mock_999")
+            self.assertTrue(called_sub_args.fork)
+            self.assertEqual(called_sub_args.resumed_from_task_id, "test-task-1")
+
+    def test_resume_cmd_unpauses_daemon_when_no_task_id(self):
+        with patch.object(cli, "PAUSED_FILE") as mock_paused:
+            mock_paused.exists.return_value = True
+            args = Mock(task_id=None)
+            with patch("builtins.print"):
+                rc = cli.resume_cmd(args)
+                self.assertEqual(rc, 0)
+                mock_paused.unlink.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()
