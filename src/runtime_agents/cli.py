@@ -912,8 +912,9 @@ def _run_process(cmd, cwd, timeout, *, shell=False):
         cmd,
         **popen_kwargs,
     )
+    effective_timeout = timeout if timeout and timeout > 0 else None
     try:
-        stdout, stderr = proc.communicate(timeout=timeout)
+        stdout, stderr = proc.communicate(timeout=effective_timeout)
         returncode = proc.returncode
     except subprocess.TimeoutExpired as exc:
         stdout, stderr = exc.stdout, exc.stderr
@@ -931,7 +932,7 @@ def _run_process(cmd, cwd, timeout, *, shell=False):
         stderr = ensure_text(stderr)
         if stderr and not stderr.endswith("\n"):
             stderr += "\n"
-        stderr += f"timeout after {timeout}s"
+        stderr += f"timeout after {effective_timeout}s"
         returncode = 124
     return {
         "started_at": started,
@@ -974,6 +975,9 @@ def normalize_attempt_text_fields(attempts, final):
 
 
 def should_fallback(result):
+    if result.get("returncode") == 124:
+        # Never trigger fallback after an intentional process timeout
+        return False
     return policy_mod.classify_failure(ensure_text(result.get("stdout", "")), ensure_text(result.get("stderr", "")), result.get("returncode", 1)) == "transient_model_error"
 
 
@@ -1049,7 +1053,7 @@ def execute_agent_attempts(agent_cfg, tool, model, prompt, autonomy, fallback, t
     final = None
     allow_fallback = bool(routing_fallbacks) or fallback
     role_label = agent_cfg.get("opencode_agent") or "agent"
-    effective_timeout = timeout or 600
+    effective_timeout = timeout if timeout and timeout > 0 else None
 
     for index, (profile, attempt_model) in enumerate(plans, start=1):
         cmd = build_command(
@@ -1067,7 +1071,7 @@ def execute_agent_attempts(agent_cfg, tool, model, prompt, autonomy, fallback, t
             "model": attempt_model,
             "command": cmd[:],
         }
-        timeout_str = f"{effective_timeout}s"
+        timeout_str = f"{effective_timeout}s" if effective_timeout else "unlimited"
         print(f"[{role_label}] Attempt {index}/{len(plans)}: Running on model '{attempt_model}' (timeout: {timeout_str})...", file=sys.stderr, flush=True)
         if event_capture:
             event_capture.record_command(" ".join(cmd))
@@ -5442,7 +5446,7 @@ def main():
     run.add_argument("--fallback", action="store_true")
     run.add_argument("--approve", action="append", default=[], metavar="CAPABILITY")
     run.add_argument("--dry-run", action="store_true")
-    run.add_argument("--timeout", type=int, default=600)
+    run.add_argument("--timeout", type=int, default=0, help="Execution timeout in seconds (0 = unlimited)")
     run.set_defaults(func=run_task)
 
     status = sub.add_parser("status")
@@ -5494,7 +5498,7 @@ def main():
     retry.add_argument("task_id")
     retry.add_argument("--fallback", action="store_true")
     retry.add_argument("--approve", action="append", default=[], metavar="CAPABILITY")
-    retry.add_argument("--timeout", type=int, default=600)
+    retry.add_argument("--timeout", type=int, default=0, help="Execution timeout in seconds (0 = unlimited)")
     retry.set_defaults(func=retry_cmd)
 
     submit = sub.add_parser("submit")
@@ -5882,7 +5886,7 @@ def main():
     iterate.add_argument("--dry-run", action="store_true")
     iterate.add_argument("--json", action="store_true")
     iterate.add_argument("--tail", type=int)
-    iterate.add_argument("--timeout", type=int, default=600)
+    iterate.add_argument("--timeout", type=int, default=0, help="Execution timeout in seconds (0 = unlimited)")
     iterate.add_argument("--check-timeout", type=int, default=300)
     iterate.set_defaults(func=iterate_cmd)
 
@@ -5903,7 +5907,7 @@ def main():
     do_p.add_argument("--dry-run", action="store_true")
     do_p.add_argument("--json", action="store_true")
     do_p.add_argument("--tail", type=int)
-    do_p.add_argument("--timeout", type=int, default=600)
+    do_p.add_argument("--timeout", type=int, default=0, help="Execution timeout in seconds (0 = unlimited)")
     do_p.add_argument("--check-timeout", type=int, default=300)
     do_p.set_defaults(func=do_cmd)
 
