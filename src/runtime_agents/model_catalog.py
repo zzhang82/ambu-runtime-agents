@@ -18,13 +18,13 @@ SNAPSHOT_NAME = "model-catalog.json"
 COOLDOWNS_NAME = "model-cooldowns.json"
 DEFAULT_STALE_SECONDS = 300
 DEFAULT_CANDIDATES = {
-    "recon": ["local/gemini-3.7-flash-high", "local/gpt-5.6-luna", "local/grok-composer-2.5-fast"],
-    "bounded_work": ["local/gemini-3.7-flash-high", "local/gpt-5.6-luna", "local/grok-composer-2.5-fast"],
-    "implementation_ready": ["local/grok-composer-2.5-fast", "local/gpt-5.6-luna", "local/gemini-3.7-flash-high"],
-    "design_planning": ["local/grok-4.6", "local/claude-opus-4-6-thinking", "local/gpt-5.6-sol"],
-    "deep_work": ["local/gpt-5.6-terra", "local/claude-opus-4-6-thinking", "local/gpt-5.6-sol", "local/gpt-5.6-luna"],
-    "review": ["local/claude-sonnet-4-6", "local/gpt-5.6-sol", "local/grok-4.6"],
-    "orchestrator": ["local/gpt-5.6-sol", "local/claude-opus-4-6-thinking", "local/gpt-5.6-luna"],
+    "recon": ["local/gemini-3.8-flash-high", "local/gemini-3.7-flash-high", "local/gpt-6-luna"],
+    "bounded_work": ["local/gemini-3.7-flash-high", "local/gpt-6-luna", "local/gemini-3.8-flash-high"],
+    "implementation_ready": ["local/grok-4.7-build-fast", "local/gpt-6-astra", "local/gemini-3.8-flash-high"],
+    "design_planning": ["local/grok-4.7", "local/gpt-6-astra", "local/gpt-6.1-sol"],
+    "deep_work": ["local/gpt-6-astra", "local/gpt-6.1-sol", "local/grok-4.7"],
+    "review": ["local/gpt-6-astra", "local/gpt-6.1-sol", "local/grok-4.7", "local/gemini-3.8-flash-high"],
+    "orchestrator": ["local/gpt-6.1-sol", "local/gpt-6-astra", "local/gemini-3.8-flash-high"],
 }
 SENSITIVE_KEYS = {"apikey", "api_key", "authorization", "token", "secret", "password"}
 
@@ -248,6 +248,10 @@ def _routing_candidates(config, frame, agent):
     if isinstance(value, dict):
         value = value.get("candidates") or value.get("models")
     candidates = list(value) if isinstance(value, list) else list(DEFAULT_CANDIDATES[frame])
+    agent_cfg = ((config or {}).get("agents") or {}).get(agent) or {}
+    configured_model = agent_cfg.get("model")
+    if configured_model and isinstance(configured_model, str):
+        candidates = [configured_model] + [m for m in candidates if m != configured_model]
     return list(dict.fromkeys(model for model in candidates if isinstance(model, str)))
 
 

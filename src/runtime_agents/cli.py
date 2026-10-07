@@ -1048,6 +1048,9 @@ def execute_agent_attempts(agent_cfg, tool, model, prompt, autonomy, fallback, t
                 plans.append((profile, candidate))
     final = None
     allow_fallback = bool(routing_fallbacks) or fallback
+    role_label = agent_cfg.get("opencode_agent") or "agent"
+    effective_timeout = timeout or 180
+
     for index, (profile, attempt_model) in enumerate(plans, start=1):
         cmd = build_command(
             tool,
@@ -1064,12 +1067,14 @@ def execute_agent_attempts(agent_cfg, tool, model, prompt, autonomy, fallback, t
             "model": attempt_model,
             "command": cmd[:],
         }
+        timeout_str = f"{effective_timeout}s"
+        print(f"[{role_label}] Attempt {index}/{len(plans)}: Running on model '{attempt_model}' (timeout: {timeout_str})...", file=sys.stderr, flush=True)
         if event_capture:
             event_capture.record_command(" ".join(cmd))
             if tool:
                 event_capture.record_tool(tool)
         try:
-            result = run_command(cmd, cwd or Path.cwd(), timeout)
+            result = run_command(cmd, cwd or Path.cwd(), effective_timeout)
             if event_capture:
                 sub_tools = parse_tools_from_stdout(result.get("stdout", ""))
                 for st in sub_tools:
@@ -1080,17 +1085,27 @@ def execute_agent_attempts(agent_cfg, tool, model, prompt, autonomy, fallback, t
                 "ended_at": now_iso(),
                 "returncode": 124,
                 "stdout": exc.stdout or "",
-                "stderr": f"timeout after {timeout}s",
+                "stderr": f"timeout after {effective_timeout}s",
             }
         attempt.update(result)
         attempts.append(attempt)
         if result["returncode"] == 0:
+            print(f"[{role_label}] Attempt {index}/{len(plans)}: Succeeded on model '{attempt_model}'.", file=sys.stderr, flush=True)
             final = attempt
             break
+
+        if result["returncode"] == 124:
+            print(f"[{role_label}] Attempt {index}/{len(plans)}: Timed out after {timeout_str}.", file=sys.stderr, flush=True)
+        else:
+            print(f"[{role_label}] Attempt {index}/{len(plans)}: Failed with exit code {result['returncode']}.", file=sys.stderr, flush=True)
+
         if not allow_fallback or not should_fallback(result):
             final = attempt
             break
         model_catalog_mod.record_cooldown(attempt_model, "transient_model_error", cooldown_seconds)
+        if index < len(plans):
+            next_model = plans[index][1]
+            print(f"[{role_label}] Falling back to next candidate model: '{next_model}'...", file=sys.stderr, flush=True)
     if final is None and attempts:
         final = attempts[-1]
     return attempts, final
@@ -1731,6 +1746,9 @@ def run_task(args):
         event_capture.finish(outcome="blocked", summary="Task blocked by MVP policy gate")
         return 2
 
+    if not getattr(args, "json", False):
+        print(f"[{args.agent}] Starting task {tid} ({autonomy}) via tool '{tool}' on model '{model}'...", file=sys.stderr, flush=True)
+
     attempts, final = execute_agent_attempts(
         agent_cfg,
         tool,
@@ -1761,6 +1779,8 @@ def run_task(args):
     write_json(run_dir / "result.json", result_summary)
     append_task(meta)
     event_capture.finish(outcome=status, summary=f"Task finished with {status}")
+    if not getattr(args, "json", False):
+        print(f"[{args.agent}] Task {tid} finished with status '{status}' (exit {final['returncode']}).", file=sys.stderr, flush=True)
     print_json({"task_id": tid, "status": status, "model": final["model"], "run_dir": str(run_dir)})
     return final["returncode"]
 
