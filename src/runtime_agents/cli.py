@@ -11,6 +11,7 @@ import signal
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 from datetime import datetime, timezone
@@ -110,6 +111,8 @@ PLAN_BLOCKED_CAPABILITIES = {
 TRANSIENT_MARKERS = policy_mod.TRANSIENT_MARKERS
 PROCESS_TERMINATE_GRACE_SECONDS = 1.0
 PROCESS_KILL_GRACE_SECONDS = 1.0
+DEFAULT_INACTIVITY_TIMEOUT_SECONDS = 300
+DEFAULT_MAX_TIMEOUT_SECONDS = 3600
 
 
 def now_iso():
@@ -929,7 +932,58 @@ def _terminate_process(proc, *, kill=False):
         proc.terminate()
 
 
-def _run_process(cmd, cwd, timeout, *, shell=False):
+def _resolve_inactivity_timeout(timeout, inactivity_timeout):
+    if inactivity_timeout is not None:
+        return inactivity_timeout
+    if timeout and timeout > 0:
+        return timeout
+    raw = os.environ.get("RUNTIME_AGENTS_INACTIVITY_TIMEOUT", DEFAULT_INACTIVITY_TIMEOUT_SECONDS)
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return float(DEFAULT_INACTIVITY_TIMEOUT_SECONDS)
+
+
+def _resolve_max_timeout(timeout, max_timeout):
+    if max_timeout is not None:
+        return max_timeout
+    if timeout and timeout > 0:
+        return max(timeout * 5, DEFAULT_MAX_TIMEOUT_SECONDS)
+    return float(DEFAULT_MAX_TIMEOUT_SECONDS)
+
+
+def _read_pipe(pipe, chunks, activity):
+    try:
+        while True:
+            chunk = pipe.read(4096)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            activity["last"] = time.time()
+    finally:
+        try:
+            pipe.close()
+        except Exception:
+            pass
+
+
+def _drain_process(proc, stdout_chunks, stderr_chunks, stdout_thread, stderr_thread):
+    """Terminate the process group, then join readers so remaining output is kept."""
+    _terminate_process(proc)
+    deadline = time.time() + PROCESS_TERMINATE_GRACE_SECONDS
+    while proc.poll() is None and time.time() < deadline:
+        time.sleep(0.05)
+    if proc.poll() is None:
+        _terminate_process(proc, kill=True)
+        kill_deadline = time.time() + PROCESS_KILL_GRACE_SECONDS
+        while proc.poll() is None and time.time() < kill_deadline:
+            time.sleep(0.05)
+    stdout_thread.join(timeout=1.0)
+    stderr_thread.join(timeout=1.0)
+    return "".join(stdout_chunks), "".join(stderr_chunks)
+
+
+def _run_process(cmd, cwd, timeout, *, shell=False, inactivity_timeout=None, max_timeout=None):
     started = now_iso()
     popen_kwargs = {
         "cwd": cwd,
@@ -937,6 +991,7 @@ def _run_process(cmd, cwd, timeout, *, shell=False):
         "text": True,
         "stdout": subprocess.PIPE,
         "stderr": subprocess.PIPE,
+        "bufsize": 1,
     }
     if os.name == "posix":
         popen_kwargs["start_new_session"] = True
@@ -944,28 +999,61 @@ def _run_process(cmd, cwd, timeout, *, shell=False):
         cmd,
         **popen_kwargs,
     )
-    effective_timeout = timeout if timeout and timeout > 0 else None
-    try:
-        stdout, stderr = proc.communicate(timeout=effective_timeout)
-        returncode = proc.returncode
-    except subprocess.TimeoutExpired as exc:
-        stdout, stderr = exc.stdout, exc.stderr
-        _terminate_process(proc)
-        try:
-            drained_stdout, drained_stderr = proc.communicate(timeout=PROCESS_TERMINATE_GRACE_SECONDS)
-        except subprocess.TimeoutExpired:
-            _terminate_process(proc, kill=True)
-            try:
-                drained_stdout, drained_stderr = proc.communicate(timeout=PROCESS_KILL_GRACE_SECONDS)
-            except subprocess.TimeoutExpired as drain_exc:
-                drained_stdout, drained_stderr = drain_exc.stdout, drain_exc.stderr
-        stdout = drained_stdout if drained_stdout is not None else stdout
-        stderr = drained_stderr if drained_stderr is not None else stderr
+    effective_inactivity = _resolve_inactivity_timeout(timeout, inactivity_timeout)
+    effective_max = _resolve_max_timeout(timeout, max_timeout)
+    # A positive wall-clock timeout stays the hard ceiling so short --timeout values
+    # still kill silent and chatty processes alike. Inactivity is an extra guard.
+    if timeout and timeout > 0:
+        effective_max = min(effective_max, timeout)
+
+    stdout_chunks = []
+    stderr_chunks = []
+    activity = {"last": time.time()}
+    start_time = activity["last"]
+    stdout_thread = threading.Thread(
+        target=_read_pipe, args=(proc.stdout, stdout_chunks, activity), daemon=True
+    )
+    stderr_thread = threading.Thread(
+        target=_read_pipe, args=(proc.stderr, stderr_chunks, activity), daemon=True
+    )
+    stdout_thread.start()
+    stderr_thread.start()
+
+    timed_out = False
+    timeout_reason = None
+    while True:
+        exited = proc.poll() is not None
+        readers_done = not stdout_thread.is_alive() and not stderr_thread.is_alive()
+        # A dead parent can leave pipes open via inherited children. Do not treat
+        # poll() alone as completion; wait until readers see EOF or a deadline hits.
+        if exited and readers_done:
+            break
+        now = time.time()
+        if effective_max and effective_max > 0 and now - start_time > effective_max:
+            timed_out = True
+            # Preserve the historical wall-clock message when --timeout is set.
+            reported = timeout if timeout and timeout > 0 else effective_max
+            timeout_reason = f"timeout after {reported}s"
+            break
+        if effective_inactivity and effective_inactivity > 0 and now - activity["last"] > effective_inactivity:
+            timed_out = True
+            timeout_reason = f"pipe inactivity after {effective_inactivity}s"
+            break
+        time.sleep(0.05)
+
+    if timed_out:
+        stdout, stderr = _drain_process(proc, stdout_chunks, stderr_chunks, stdout_thread, stderr_thread)
         stderr = ensure_text(stderr)
         if stderr and not stderr.endswith("\n"):
             stderr += "\n"
-        stderr += f"timeout after {effective_timeout}s"
+        stderr += timeout_reason or ""
         returncode = 124
+    else:
+        stdout_thread.join(timeout=1.0)
+        stderr_thread.join(timeout=1.0)
+        stdout = "".join(stdout_chunks)
+        stderr = "".join(stderr_chunks)
+        returncode = proc.returncode if proc.returncode is not None else proc.wait()
     return {
         "started_at": started,
         "ended_at": now_iso(),
@@ -975,12 +1063,12 @@ def _run_process(cmd, cwd, timeout, *, shell=False):
     }
 
 
-def run_command(cmd, cwd, timeout):
-    return _run_process(cmd, cwd, timeout)
+def run_command(cmd, cwd, timeout, inactivity_timeout=None, max_timeout=None):
+    return _run_process(cmd, cwd, timeout, inactivity_timeout=inactivity_timeout, max_timeout=max_timeout)
 
 
-def run_shell_check(command, cwd, timeout):
-    return _run_process(command, cwd, timeout, shell=True)
+def run_shell_check(command, cwd, timeout, inactivity_timeout=None, max_timeout=None):
+    return _run_process(command, cwd, timeout, shell=True, inactivity_timeout=inactivity_timeout, max_timeout=max_timeout)
 
 
 def ensure_text(value):
@@ -5638,6 +5726,7 @@ def main():
     run.add_argument("--approve", action="append", default=[], metavar="CAPABILITY")
     run.add_argument("--dry-run", action="store_true")
     run.add_argument("--timeout", type=int, default=0, help="Execution timeout in seconds (0 = unlimited)")
+    run.add_argument("--inactivity-timeout", type=int, default=None, help="Kill the process if stdout/stderr are silent for this many seconds")
     run.set_defaults(func=run_task)
 
     status = sub.add_parser("status")
@@ -6086,6 +6175,7 @@ def main():
     iterate.add_argument("--json", action="store_true")
     iterate.add_argument("--tail", type=int)
     iterate.add_argument("--timeout", type=int, default=0, help="Execution timeout in seconds (0 = unlimited)")
+    iterate.add_argument("--inactivity-timeout", type=int, default=None, help="Kill the process if stdout/stderr are silent for this many seconds")
     iterate.add_argument("--check-timeout", type=int, default=300)
     iterate.set_defaults(func=iterate_cmd)
 
@@ -6107,6 +6197,7 @@ def main():
     do_p.add_argument("--json", action="store_true")
     do_p.add_argument("--tail", type=int)
     do_p.add_argument("--timeout", type=int, default=0, help="Execution timeout in seconds (0 = unlimited)")
+    do_p.add_argument("--inactivity-timeout", type=int, default=None, help="Kill the process if stdout/stderr are silent for this many seconds")
     do_p.add_argument("--check-timeout", type=int, default=300)
     do_p.set_defaults(func=do_cmd)
 
