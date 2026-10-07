@@ -178,6 +178,27 @@ class AuditHardeningTests(unittest.TestCase):
             # 3 max rounds minus 2 started rounds leaves 1
             self.assertEqual(called_args["max_rounds"], 1)
 
+    def test_dispatch_does_not_guess_foreign_session_on_success(self):
+        # Even if a foreign session exists in the DB within the time window,
+        # execute_agent_attempts must not guess or adopt it on successful exit.
+        agent_cfg = {"tool": "opencode", "autonomy": "workspace_write", "opencode_agent": "coder"}
+        with patch.object(cli, "run_command", return_value={"returncode": 0, "stdout": "ok", "stderr": ""}), \
+             patch.object(cli, "find_latest_opencode_session", return_value="ses_foreign"):
+            attempts, final = cli.execute_agent_attempts(
+                agent_cfg, "opencode", "test/model", "prompt", "workspace_write",
+                fallback=False, timeout=10, session_id=None, fork=False,
+            )
+            self.assertIsNone(final.get("session_id"))
+            self.assertIsNone(attempts[0].get("session_id"))
+
+            # When continuing a known session without fork, preserve the known session
+            attempts, final = cli.execute_agent_attempts(
+                agent_cfg, "opencode", "test/model", "prompt", "workspace_write",
+                fallback=False, timeout=10, session_id="ses_owned", fork=False,
+            )
+            self.assertEqual(final.get("session_id"), "ses_owned")
+            self.assertEqual(attempts[0].get("session_id"), "ses_owned")
+
 
 if __name__ == "__main__":
     unittest.main()

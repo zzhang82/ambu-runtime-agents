@@ -1305,13 +1305,8 @@ def execute_agent_attempts(
                 "stdout": exc.stdout or "",
                 "stderr": f"timeout after {effective_timeout}s",
             }
-        end_ms = int(time.time() * 1000)
-        if result["returncode"] == 0:
-            sess_id = find_latest_opencode_session(start_ms, cwd, end_ms=end_ms)
-            if sess_id:
-                last_session_id = sess_id
-                attempt["session_id"] = sess_id
-        elif use_session:
+        if use_session and not use_fork:
+            last_session_id = use_session
             attempt["session_id"] = use_session
 
         attempt.update(result)
