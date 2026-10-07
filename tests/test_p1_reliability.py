@@ -126,6 +126,15 @@ class P1ReliabilityTests(unittest.TestCase):
             cli.cancel_queue_item("q1", "user cancelled", previous_status="running")
             mock_killpg.assert_called_once_with(99999, signal.SIGTERM)
 
+    def test_classify_failure_handles_503_and_quota_without_test_stdout_false_positive(self):
+        from runtime_agents import policy
+        # 503 in stderr must be recognized
+        self.assertEqual(policy.classify_failure("", "HTTP 503 Service Unavailable", 1), "transient_model_error")
+        # insufficient_quota in stderr must be recognized
+        self.assertEqual(policy.classify_failure("", "insufficient_quota: plan quota exceeded", 1), "transient_model_error")
+        # test assertion in stdout containing 429 must NOT be classified as transient model failure
+        self.assertIsNone(policy.classify_failure("AssertionError: assert response.status_code == 429", "", 1))
+
 
 if __name__ == "__main__":
     unittest.main()

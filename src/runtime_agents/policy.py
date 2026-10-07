@@ -4,10 +4,14 @@ from runtime_agents.models import PolicyDecision
 
 
 TRANSIENT_MARKERS = (
-    "429",
+    "429 too many requests",
+    "http 429",
+    "http 503",
+    "503 service unavailable",
+    "service unavailable",
     "model_cooldown",
-    "RESOURCE_EXHAUSTED",
-    "Too Many Requests",
+    "resource_exhausted",
+    "too many requests",
     "temporarily unavailable",
     "rate limit",
     "gateway unavailable",
@@ -18,7 +22,11 @@ TRANSIENT_MARKERS = (
     "all credentials for model",
     "unexpected server error",
     "internal server error",
-    '"name": "UnknownError"',
+    '"name": "unknownerror"',
+    "insufficient_quota",
+    "quota exceeded",
+    "plan quota exceeded",
+    "quota_exhausted",
 )
 
 CAPABILITY_PATTERNS = {
@@ -67,7 +75,27 @@ def evaluate_approval(text: str, approved_caps: list[str] | None, mode: str, req
 def classify_failure(stdout: str, stderr: str, returncode: int) -> str | None:
     if returncode == 0:
         return None
-    text = f"{stdout or ''}\n{stderr or ''}".lower()
-    if any(marker.lower() in text for marker in TRANSIENT_MARKERS):
+    # Check stderr for gateway/infrastructure errors
+    err_text = (stderr or "").lower()
+    if any(marker.lower() in err_text for marker in TRANSIENT_MARKERS):
+        return "transient_model_error"
+    # For stdout, check specific multi-word error markers so bare numbers don't match test assertions
+    out_text = (stdout or "").lower()
+    out_markers = (
+        "429 too many requests",
+        "http 429",
+        "http 503",
+        "503 service unavailable",
+        "service unavailable",
+        "rate limit",
+        "rate_limit_exceeded",
+        "model_cooldown",
+        "insufficient_quota",
+        "quota exceeded",
+        "plan quota exceeded",
+        "quota_exhausted",
+        "all credentials for model",
+    )
+    if any(m in out_text for m in out_markers):
         return "transient_model_error"
     return None
