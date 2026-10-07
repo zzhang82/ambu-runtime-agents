@@ -140,7 +140,7 @@ def overlay_slim_agents(
     """Overlay discovered slim agents onto a runtime-agents configuration.
 
     - Adds any Slim role that does not yet exist in config['agents'].
-    - Enriches existing agents with Slim model/variant defaults if not explicitly set.
+    - User Slim preset model, variant, skills, and mcps override packaged defaults.
     """
     if not isinstance(config, dict):
         return config
@@ -153,9 +153,15 @@ def overlay_slim_agents(
             agents[role_name] = slim_agent
         else:
             existing = dict(agents[role_name])
-            # If variant is set in Slim but not in agents.yaml, adopt it
-            if "variant" not in existing and slim_agent.get("variant"):
+            # Active Slim preset wins over packaged defaults for these fields.
+            if slim_agent.get("model"):
+                existing["model"] = slim_agent["model"]
+            if slim_agent.get("variant"):
                 existing["variant"] = slim_agent["variant"]
+            if slim_agent.get("skills"):
+                existing["skills"] = slim_agent["skills"]
+            if slim_agent.get("mcps"):
+                existing["mcps"] = slim_agent["mcps"]
             # If opencode_agent is missing or is generic 'build', align it with role name if recognized
             if existing.get("opencode_agent") in (None, "build") and role_name in ROUTING_FRAME_MAP:
                 existing["opencode_agent"] = role_name

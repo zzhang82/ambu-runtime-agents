@@ -5414,7 +5414,13 @@ def writeback_cmd(args):
             items = ((verify.get("response") or {}).get("items") or []) if verify.get("ok") else []
             result["verified"] = any(item.get("id") == result.get("id") for item in items if isinstance(item, dict))
         results.append(result)
-    failed = [r for r in results if not r or not r.get("ok")]
+    def _writeback_failed(record) -> bool:
+        if not record or not record.get("ok") or record.get("isError") or not record.get("id"):
+            return True
+        response = record.get("response")
+        return isinstance(response, dict) and bool(response.get("isError"))
+
+    failed = [r for r in results if _writeback_failed(r)]
     writeback_receipt = {
         "task_id": args.task_id,
         "namespace": namespace,

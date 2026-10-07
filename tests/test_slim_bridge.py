@@ -95,7 +95,12 @@ class SlimBridgeTests(unittest.TestCase):
                 "presets": {
                     "test": {
                         "oracle": {"model": "local/oracle-model", "variant": "xhigh"},
-                        "existing_agent": {"model": "local/new-model", "variant": "max"},
+                        "existing_agent": {
+                            "model": "local/new-model",
+                            "variant": "max",
+                            "skills": ["simplify"],
+                            "mcps": ["context7"],
+                        },
                     }
                 },
             }),
@@ -121,10 +126,13 @@ class SlimBridgeTests(unittest.TestCase):
         self.assertEqual(agents["oracle"]["model"], "local/oracle-model")
         self.assertEqual(agents["oracle"]["variant"], "xhigh")
 
-        # Existing agent preserved with variant overlaid
+        # Active Slim preset overrides packaged model, variant, skills, and mcps
         existing = agents["existing_agent"]
-        self.assertEqual(existing["model"], "local/old-model")
+        self.assertEqual(existing["model"], "local/new-model")
         self.assertEqual(existing["variant"], "max")
+        self.assertEqual(existing["skills"], ["simplify"])
+        self.assertEqual(existing["mcps"], ["context7"])
+        self.assertEqual(existing["tool"], "opencode")
 
     def test_build_opencode_exec_command_with_variant(self):
         cmd = execution_substrate.build_opencode_exec_command(

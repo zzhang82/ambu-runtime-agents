@@ -16,6 +16,12 @@ class StateHelpersTests(unittest.TestCase):
         path = self.tmp / "events.jsonl"
         self.assertEqual(state.read_jsonl(path), [])
 
+    def test_read_jsonl_skips_trailing_partial_line(self):
+        path = self.tmp / "partial.jsonl"
+        path.write_text('{"id": "a", "status": "queued"}\n{"id": "b", "sta', encoding="utf-8")
+        events = state.read_jsonl(path)
+        self.assertEqual(events, [{"id": "a", "status": "queued"}])
+
     def test_append_and_latest_by_id(self):
         path = self.tmp / "events.jsonl"
         state.append_jsonl(path, {"id": "a", "status": "queued"})
