@@ -1210,10 +1210,10 @@ def find_latest_opencode_session(start_ms: int, cwd: Path | str | None = None, e
         conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
         cur = conn.cursor()
         query = "SELECT id FROM session WHERE time_created >= ?"
-        params: list[Any] = [max(0, start_ms - 3000)]
+        params: list[Any] = [start_ms]
         if end_ms is not None:
             query += " AND time_created <= ?"
-            params.append(end_ms + 3000)
+            params.append(end_ms)
         if cwd:
             resolved_cwd = str(Path(cwd).resolve())
             query += " AND (directory = ? OR directory = ?)"
@@ -1306,10 +1306,13 @@ def execute_agent_attempts(
                 "stderr": f"timeout after {effective_timeout}s",
             }
         end_ms = int(time.time() * 1000)
-        sess_id = find_latest_opencode_session(start_ms, cwd, end_ms=end_ms)
-        if sess_id:
-            last_session_id = sess_id
-            attempt["session_id"] = sess_id
+        if result["returncode"] == 0:
+            sess_id = find_latest_opencode_session(start_ms, cwd, end_ms=end_ms)
+            if sess_id:
+                last_session_id = sess_id
+                attempt["session_id"] = sess_id
+        elif use_session:
+            attempt["session_id"] = use_session
 
         attempt.update(result)
         attempts.append(attempt)
@@ -2086,7 +2089,7 @@ def resume_task_cmd(args):
     orig_mode = task.get("mode", "run")
     is_iterate = orig_mode == "iterate" or bool(task.get("check")) or bool(task.get("eval_artifacts"))
 
-    orig_rounds = task.get("rounds", 0)
+    orig_rounds = task.get("rounds_started", task.get("rounds", 0))
     max_rounds = task.get("max_rounds", 5)
     user_max_rounds = getattr(args, "max_rounds", None)
     if user_max_rounds is not None:
@@ -2345,6 +2348,7 @@ def iterate_cmd(args):
         return res
 
     round_results = []
+    rounds_started = 0
     try:
         initial_dir = rounds_dir / "0"
         initial_dir.mkdir(parents=True, exist_ok=True)
@@ -2389,7 +2393,9 @@ def iterate_cmd(args):
         final_check_passed = False
         fallback_used = False
         last_check = check_result
+        rounds_started = 0
         for round_num in range(1, args.max_rounds + 1):
+            rounds_started = round_num
             _log(f"\n[Round {round_num}/{args.max_rounds}] Preparing agent dispatch...")
             routing = model_catalog_mod.dispatch_preflight(config, args.agent, args.model)
             model = routing.get("selected_model")
@@ -2508,6 +2514,7 @@ def iterate_cmd(args):
             "status": final_status,
             "ended_at": now_iso(),
             "rounds": rounds_count,
+            "rounds_started": rounds_started,
             "final_check_passed": final_check_passed,
             "fallback_used": fallback_used,
             "max_same_failure": max_same_failure,
@@ -2564,6 +2571,7 @@ def iterate_cmd(args):
         else:
             rc = getattr(exc, "code", 1) if isinstance(getattr(exc, "code", None), int) else 1
         spent_rounds = len(round_results) if "round_results" in locals() else 0
+        spent_started = rounds_started if "rounds_started" in locals() else spent_rounds
         all_sessions = []
         if "round_results" in locals():
             for rd_info in round_results:
@@ -2577,6 +2585,7 @@ def iterate_cmd(args):
             "status": status,
             "ended_at": ended_at,
             "rounds": spent_rounds,
+            "rounds_started": spent_started,
             "session_id": last_session,
             "sessions": all_sessions,
             "error": str(exc) or status,
@@ -2586,6 +2595,7 @@ def iterate_cmd(args):
             "task_id": tid,
             "status": status,
             "rounds": spent_rounds,
+            "rounds_started": spent_started,
             "returncode": rc,
             "error": str(exc) or status,
         })

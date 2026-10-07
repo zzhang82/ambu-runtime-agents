@@ -151,6 +151,33 @@ class AuditHardeningTests(unittest.TestCase):
                     cli.resume_task_cmd(args)
                 self.assertIn("No OpenCode session recorded", str(raised.exception))
 
+    def test_interrupted_iteration_charges_dispatched_round(self):
+        task_meta = {
+            "task_id": "interrupted-iter",
+            "agent": "coder",
+            "model": "test/model",
+            "goal": "fix acceptance",
+            "session_id": "ses_round1",
+            "workspace": None,
+            "cwd": "/workspace/A",
+            "mode": "iterate",
+            "check": "python check.py",
+            "eval_artifacts": [],
+            "max_rounds": 3,
+            "rounds": 1,
+            "rounds_started": 2,
+            "status": "cancelled",
+        }
+        with patch.object(cli, "RUNS_DIR", Path("/unused")), \
+             patch.object(cli, "latest_task", return_value=task_meta), \
+             patch.object(cli, "iterate_cmd", return_value=0) as mock_iterate:
+            args = argparse.Namespace(task_id="interrupted-iter", model=None, prompt=None, json=True)
+            cli.resume_task_cmd(args)
+            mock_iterate.assert_called_once()
+            called_args = vars(mock_iterate.call_args.args[0])
+            # 3 max rounds minus 2 started rounds leaves 1
+            self.assertEqual(called_args["max_rounds"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()
