@@ -8,21 +8,20 @@
 [![Ecosystem: OMO--Slim](https://img.shields.io/badge/Ecosystem-oh--my--opencode--slim-purple?style=flat-square)](https://github.com/carlg/oh-my-opencode-slim)
 [![Memory: AMB](https://img.shields.io/badge/Memory-Agent--Memory--Bridge-blue?style=flat-square)](https://github.com/zzhang82/Agent-Memory-Bridge)
 [![Python: 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue?style=flat-square&logo=python&logoColor=white)](https://python.org)
-[![Tests: 274 Passing](https://img.shields.io/badge/Tests-274%20Passing-brightgreen?style=flat-square)](tests/)
+[![Tests: 294 Passing](https://img.shields.io/badge/Tests-294%20Passing-brightgreen?style=flat-square)](tests/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
 
-**Ambu** (`agentctl`) is a supervisory control plane built specifically for [OpenCode](https://opencode.ai) coding agents. It routes natural language tasks to specialist personas, verifies workspace changes with automated test commands, and halts runaway retry loops before they burn API quota.
+**Ambu** (`agentctl`) is a small CLI for bounded, check-driven repair with [OpenCode](https://opencode.ai). It runs a user-supplied verification command, limits repair attempts, stops on repeated failures, and records each run. It is not a replacement for OMO/Slim orchestration, an operating-system sandbox, or a general-purpose acceptance judge.
 
 ---
 
-## The Problem Ambu Solves
+## What Ambu Does
 
-Running autonomous coding agents directly in a repository often hits three walls:
+Running autonomous coding agents in a repository often hits two key walls:
 1. **Blind runaway loops**: Agents hitting an environment bug or impossible constraint retry repeatedly, producing identical errors and burning quota.
-2. **Arcane persona configuration**: OpenCode supports specialist roles, but invoking them manually requires complex CLI flags and setup.
-3. **Ungated permissions**: Agents run without safety guardrails, risking unintended git pushes, secret edits, or destructive file changes.
+2. **Missing verification boundaries**: Agents report that a task is "done" without executing the project's test suite or verification commands.
 
-**Ambu wraps `opencode run` as an intelligent supervisor:** it auto-routes tasks to specialist stations, enforces policy guardrails, and validates every code modification against your test suite.
+**Ambu wraps `opencode run` with bounded oversight:** it dispatches tasks, validates every modification against your provided test command, enforces preflight policy gates, and stops when errors repeat.
 
 ---
 

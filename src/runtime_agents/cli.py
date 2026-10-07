@@ -954,13 +954,16 @@ def _resolve_max_timeout(timeout, max_timeout):
 
 
 def _read_pipe(pipe, chunks, activity):
+    fd = pipe.fileno()
     try:
         while True:
-            chunk = pipe.read(4096)
-            if not chunk:
+            raw = os.read(fd, 4096)
+            if not raw:
                 break
-            chunks.append(chunk)
-            activity["last"] = time.time()
+            chunks.append(raw.decode("utf-8", errors="replace"))
+            activity["last"] = time.monotonic()
+    except (OSError, ValueError):
+        pass
     finally:
         try:
             pipe.close()
@@ -970,14 +973,24 @@ def _read_pipe(pipe, chunks, activity):
 
 def _drain_process(proc, stdout_chunks, stderr_chunks, stdout_thread, stderr_thread):
     """Terminate the process group, then join readers so remaining output is kept."""
+    def group_is_alive():
+        proc.poll()
+        if os.name == "posix":
+            try:
+                os.killpg(proc.pid, 0)
+                return True
+            except (ProcessLookupError, OSError):
+                return False
+        return proc.poll() is None
+
     _terminate_process(proc)
-    deadline = time.time() + PROCESS_TERMINATE_GRACE_SECONDS
-    while proc.poll() is None and time.time() < deadline:
+    deadline = time.monotonic() + PROCESS_TERMINATE_GRACE_SECONDS
+    while group_is_alive() and time.monotonic() < deadline:
         time.sleep(0.05)
-    if proc.poll() is None:
+    if group_is_alive():
         _terminate_process(proc, kill=True)
-        kill_deadline = time.time() + PROCESS_KILL_GRACE_SECONDS
-        while proc.poll() is None and time.time() < kill_deadline:
+        kill_deadline = time.monotonic() + PROCESS_KILL_GRACE_SECONDS
+        while group_is_alive() and time.monotonic() < kill_deadline:
             time.sleep(0.05)
     stdout_thread.join(timeout=1.0)
     stderr_thread.join(timeout=1.0)
@@ -1009,7 +1022,7 @@ def _run_process(cmd, cwd, timeout, *, shell=False, inactivity_timeout=None, max
 
     stdout_chunks = []
     stderr_chunks = []
-    activity = {"last": time.time()}
+    activity = {"last": time.monotonic()}
     start_time = activity["last"]
     stdout_thread = threading.Thread(
         target=_read_pipe, args=(proc.stdout, stdout_chunks, activity), daemon=True
@@ -1049,7 +1062,7 @@ def _run_process(cmd, cwd, timeout, *, shell=False, inactivity_timeout=None, max
             # poll() alone as completion; wait until readers see EOF or a deadline hits.
             if exited and readers_done:
                 break
-            now = time.time()
+            now = time.monotonic()
             if effective_max and effective_max > 0 and now - start_time > effective_max:
                 timed_out = True
                 # Preserve the historical wall-clock message when --timeout is set.
@@ -1205,11 +1218,13 @@ def find_latest_opencode_session(start_ms: int, cwd: Path | str | None = None, e
             resolved_cwd = str(Path(cwd).resolve())
             query += " AND (directory = ? OR directory = ?)"
             params.extend([str(cwd), resolved_cwd])
-        query += " ORDER BY time_created DESC LIMIT 1"
+        query += " ORDER BY time_created DESC"
         cur.execute(query, params)
-        row = cur.fetchone()
+        rows = cur.fetchall()
         conn.close()
-        return row[0] if row else None
+        if len(rows) == 1:
+            return rows[0][0]
+        return None
     except Exception:
         return None
 
@@ -2028,7 +2043,11 @@ def resume_task_cmd(args):
         try:
             start_dt = datetime.fromisoformat(task["started_at"].replace("Z", "+00:00"))
             start_ms = int(start_dt.timestamp() * 1000)
-            session_id = find_latest_opencode_session(start_ms, task.get("cwd"))
+            end_ms = None
+            if task.get("ended_at"):
+                end_dt = datetime.fromisoformat(task["ended_at"].replace("Z", "+00:00"))
+                end_ms = int(end_dt.timestamp() * 1000)
+            session_id = find_latest_opencode_session(start_ms, task.get("cwd"), end_ms=end_ms)
         except Exception:
             session_id = None
 
@@ -2047,6 +2066,14 @@ def resume_task_cmd(args):
     orig_mode = task.get("mode", "run")
     is_iterate = orig_mode == "iterate" or bool(task.get("check")) or bool(task.get("eval_artifacts"))
 
+    orig_rounds = task.get("rounds", 0)
+    max_rounds = task.get("max_rounds", 5)
+    user_max_rounds = getattr(args, "max_rounds", None)
+    if user_max_rounds is not None:
+        effective_max_rounds = user_max_rounds
+    else:
+        effective_max_rounds = max(0, max_rounds - orig_rounds) if isinstance(orig_rounds, int) and isinstance(max_rounds, int) else 0
+
     sub_args = argparse.Namespace(
         agent=task.get("agent", "oracle"),
         prompt=[resume_prompt],
@@ -2054,14 +2081,16 @@ def resume_task_cmd(args):
         check=task.get("check"),
         eval_artifact=task.get("eval_artifacts", []) or task.get("eval_artifact", []),
         eval_artifacts=task.get("eval_artifacts", []),
-        max_rounds=task.get("max_rounds", 5),
+        max_rounds=effective_max_rounds,
         max_same_failure=task.get("max_same_failure", 2),
         model=target_model,
         workspace=task.get("workspace"),
         cwd=task.get("cwd"),
+        check_timeout=getattr(args, "check_timeout", None) or task.get("check_timeout"),
+        timeout=getattr(args, "timeout", None) or task.get("timeout", 0),
+        inactivity_timeout=getattr(args, "inactivity_timeout", None) or task.get("inactivity_timeout"),
         approve=getattr(args, "approve", []) or task.get("approved_capabilities", []),
         fallback=getattr(args, "fallback", False),
-        timeout=getattr(args, "timeout", 0),
         no_memory=True,
         memory_query=None,
         memory_preview=False,

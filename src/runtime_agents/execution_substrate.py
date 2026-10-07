@@ -45,7 +45,11 @@ def build_opencode_exec_command(
         cmd += ["--model", model]
     if variant:
         cmd += ["--variant", variant]
-    effective_agent = opencode_agent or ("oracle" if autonomy == "read_only" else "build")
+    effective_agent = (
+        "oracle"
+        if autonomy == "read_only" and (not opencode_agent or opencode_agent in ("build", "coder", "fixer"))
+        else (opencode_agent or "build")
+    )
     cmd += ["--agent", effective_agent]
     cmd.append(prompt)
     return cmd
