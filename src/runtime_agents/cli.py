@@ -1957,7 +1957,8 @@ def run_task(args):
         "memory_namespace": memory_namespace,
         "memory_recall": memory_recall,
         "resumed_from": resumed_from,
-        "session_id": initial_session_id,
+        "continued_from_session": initial_session_id,
+        "session_id": None,
         "timeout": getattr(args, "timeout", None),
         "inactivity_timeout": getattr(args, "inactivity_timeout", None),
     }
@@ -2038,7 +2039,7 @@ def run_task(args):
     (run_dir / "stdout.log").write_text(final["stdout"], encoding="utf-8")
     (run_dir / "stderr.log").write_text(final["stderr"], encoding="utf-8")
     status = "completed" if final["returncode"] == 0 else "failed"
-    recorded_session_id = final.get("session_id") or initial_session_id
+    recorded_session_id = final.get("session_id")
     meta = {
         **base_meta,
         "status": status,

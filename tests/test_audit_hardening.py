@@ -199,6 +199,25 @@ class AuditHardeningTests(unittest.TestCase):
             self.assertEqual(final.get("session_id"), "ses_owned")
             self.assertEqual(attempts[0].get("session_id"), "ses_owned")
 
+    def test_fork_execution_must_not_persist_parent_session(self):
+        # When fork=True is passed, run_task must not backfill parent session_id into metadata
+        agent_cfg = {"tool": "opencode", "autonomy": "workspace_write", "opencode_agent": "coder"}
+        with tempfile.TemporaryDirectory() as td:
+            run_dir = Path(td)
+            with patch.object(cli, "RUNS_DIR", run_dir), \
+                 patch.object(cli.model_catalog_mod, "dispatch_preflight", return_value={"selected_model": "test/model", "required": False}), \
+                 patch.object(cli, "execute_agent_attempts", return_value=([{"attempt": 1, "stdout": "", "stderr": "", "returncode": 0}], {"attempt": 1, "stdout": "", "stderr": "", "returncode": 0, "model": "test/model"})):
+                args = argparse.Namespace(
+                    agent="coder", prompt=["test"], model="test/model", workspace=None,
+                    approve=[], fallback=False, timeout=0, json=True,
+                    session_id="ses_parent", fork=True,
+                )
+                rc = cli.run_task(args)
+                self.assertEqual(rc, 0)
+                meta = cli.load_json_file(list(run_dir.glob("*/metadata.json"))[0]) or {}
+                self.assertIsNone(meta.get("session_id"))
+                self.assertEqual(meta.get("continued_from_session"), "ses_parent")
+
 
 if __name__ == "__main__":
     unittest.main()
