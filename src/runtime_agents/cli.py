@@ -2001,20 +2001,30 @@ def run_task(args):
             fork=fork_session,
         )
     except BaseException as exc:
+        import signal as _sig
         ended_at = now_iso()
+        is_cancel = isinstance(exc, KeyboardInterrupt) or (
+            isinstance(exc, SystemExit) and exc.code in (130, 143, -_sig.SIGINT, -_sig.SIGTERM)
+        )
+        status = "cancelled" if is_cancel else "failed"
+        if isinstance(exc, KeyboardInterrupt):
+            rc = 130
+        elif isinstance(exc, SystemExit) and isinstance(exc.code, int):
+            rc = exc.code
+        else:
+            rc = getattr(exc, "code", 1) if isinstance(getattr(exc, "code", None), int) else 1
         term_meta = {
             **base_meta,
-            "status": "cancelled",
+            "status": status,
             "ended_at": ended_at,
-            "error": str(exc) or "cancelled",
+            "error": str(exc) or status,
         }
         write_json(run_dir / "metadata.json", term_meta)
-        rc = 130 if isinstance(exc, KeyboardInterrupt) else (exc.code if isinstance(exc, SystemExit) and isinstance(exc.code, int) else 143)
         write_json(run_dir / "result.json", {
             "task_id": tid,
-            "status": "cancelled",
+            "status": status,
             "returncode": rc,
-            "error": str(exc) or "cancelled",
+            "error": str(exc) or status,
         })
         append_task(term_meta)
         raise
@@ -2061,16 +2071,6 @@ def resume_task_cmd(args):
         raise SystemExit(f"Unknown task id: {args.task_id}")
 
     session_id = task.get("session_id")
-    if not session_id and task.get("started_at") and task.get("ended_at"):
-        try:
-            start_dt = datetime.fromisoformat(task["started_at"].replace("Z", "+00:00"))
-            start_ms = int(start_dt.timestamp() * 1000)
-            end_dt = datetime.fromisoformat(task["ended_at"].replace("Z", "+00:00"))
-            end_ms = int(end_dt.timestamp() * 1000)
-            session_id = find_latest_opencode_session(start_ms, task.get("cwd"), end_ms=end_ms)
-        except Exception:
-            session_id = None
-
     if not session_id:
         raise SystemExit(f"No OpenCode session recorded for task {args.task_id}. Cannot resume.")
 
@@ -2344,8 +2344,8 @@ def iterate_cmd(args):
                 }
         return res
 
+    round_results = []
     try:
-        round_results = []
         initial_dir = rounds_dir / "0"
         initial_dir.mkdir(parents=True, exist_ok=True)
         _log(f"[Round 0] Evaluating initial check: {args.check or 'artifacts only'}")
@@ -2495,6 +2495,14 @@ def iterate_cmd(args):
                 break
 
         rounds_count = len(round_results)
+        all_sessions = []
+        for rd_info in round_results:
+            for att in rd_info.get("attempts", []):
+                sid = att.get("session_id")
+                if sid and sid not in all_sessions:
+                    all_sessions.append(sid)
+        last_session = all_sessions[-1] if all_sessions else None
+
         meta = {
             **base_meta,
             "status": final_status,
@@ -2507,6 +2515,8 @@ def iterate_cmd(args):
             "gap_detail": last_gap_detail,
             "blocker_fingerprint": last_fingerprint,
             "rounds_with_same_blocker": rounds_with_same_blocker,
+            "session_id": last_session,
+            "sessions": all_sessions,
         }
         result = {
             "task_id": tid,
@@ -2541,20 +2551,43 @@ def iterate_cmd(args):
             return 3
         return 1
     except BaseException as exc:
+        import signal as _sig
         ended_at = now_iso()
+        is_cancel = isinstance(exc, KeyboardInterrupt) or (
+            isinstance(exc, SystemExit) and exc.code in (130, 143, -_sig.SIGINT, -_sig.SIGTERM)
+        )
+        status = "cancelled" if is_cancel else "failed"
+        if isinstance(exc, KeyboardInterrupt):
+            rc = 130
+        elif isinstance(exc, SystemExit) and isinstance(exc.code, int):
+            rc = exc.code
+        else:
+            rc = getattr(exc, "code", 1) if isinstance(getattr(exc, "code", None), int) else 1
+        spent_rounds = len(round_results) if "round_results" in locals() else 0
+        all_sessions = []
+        if "round_results" in locals():
+            for rd_info in round_results:
+                for att in rd_info.get("attempts", []):
+                    sid = att.get("session_id")
+                    if sid and sid not in all_sessions:
+                        all_sessions.append(sid)
+        last_session = all_sessions[-1] if all_sessions else None
         term_meta = {
             **base_meta,
-            "status": "cancelled",
+            "status": status,
             "ended_at": ended_at,
-            "error": str(exc) or "cancelled",
+            "rounds": spent_rounds,
+            "session_id": last_session,
+            "sessions": all_sessions,
+            "error": str(exc) or status,
         }
         write_json(run_dir / "metadata.json", term_meta)
-        rc = 130 if isinstance(exc, KeyboardInterrupt) else (exc.code if isinstance(exc, SystemExit) and isinstance(exc.code, int) else 143)
         write_json(run_dir / "result.json", {
             "task_id": tid,
-            "status": "cancelled",
+            "status": status,
+            "rounds": spent_rounds,
             "returncode": rc,
-            "error": str(exc) or "cancelled",
+            "error": str(exc) or status,
         })
         append_task(term_meta)
         raise
