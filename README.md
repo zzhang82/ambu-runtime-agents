@@ -121,7 +121,7 @@ Looking for a hands-free OpenCode / Codex skill with automated milestone streami
 
 ## Testing & License
 
-Run all 282 tests:
+Run all 288 tests:
 ```bash
 python3 -m unittest discover -s tests
 ```

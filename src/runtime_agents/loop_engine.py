@@ -199,6 +199,8 @@ def check_eval_artifacts(run_cwd: Path, artifacts: list[str]) -> tuple[bool, str
             return False, f"Required evaluation artifact is not a regular file: {clean}"
         if p.stat().st_size == 0:
             return False, f"Required evaluation artifact is empty (0 bytes): {clean}"
+        if not p.read_bytes().strip():
+            return False, f"Required evaluation artifact contains only whitespace: {clean}"
 
     return True, ""
 

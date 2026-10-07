@@ -186,10 +186,11 @@ def load_version():
         match = re.search(r'^version\s*=\s*"([^"]+)"\s*$', text, re.MULTILINE)
         if match:
             return match.group(1)
-    try:
-        return importlib.metadata.version("runtime-agents")
-    except importlib.metadata.PackageNotFoundError:
-        pass
+    for dist_name in ("ambu-runtime-agents", "runtime-agents"):
+        try:
+            return importlib.metadata.version(dist_name)
+        except importlib.metadata.PackageNotFoundError:
+            pass
     if VERSION_PATH.exists():
         return VERSION_PATH.read_text(encoding="utf-8").strip()
     return "0.0.0-unknown"
@@ -1019,27 +1020,54 @@ def _run_process(cmd, cwd, timeout, *, shell=False, inactivity_timeout=None, max
     stdout_thread.start()
     stderr_thread.start()
 
+    orig_sigterm = signal.getsignal(signal.SIGTERM)
+    orig_sigint = signal.getsignal(signal.SIGINT)
+
+    def _forward_signal(sig, frame):
+        _terminate_process(proc, kill=True)
+        if callable(orig_sigterm) and sig == signal.SIGTERM and orig_sigterm not in (signal.SIG_IGN, signal.SIG_DFL):
+            orig_sigterm(sig, frame)
+        elif callable(orig_sigint) and sig == signal.SIGINT and orig_sigint not in (signal.SIG_IGN, signal.SIG_DFL):
+            orig_sigint(sig, frame)
+        else:
+            sys.exit(128 + sig)
+
+    if os.name == "posix":
+        try:
+            signal.signal(signal.SIGTERM, _forward_signal)
+            signal.signal(signal.SIGINT, _forward_signal)
+        except (ValueError, OSError):
+            pass
+
     timed_out = False
     timeout_reason = None
-    while True:
-        exited = proc.poll() is not None
-        readers_done = not stdout_thread.is_alive() and not stderr_thread.is_alive()
-        # A dead parent can leave pipes open via inherited children. Do not treat
-        # poll() alone as completion; wait until readers see EOF or a deadline hits.
-        if exited and readers_done:
-            break
-        now = time.time()
-        if effective_max and effective_max > 0 and now - start_time > effective_max:
-            timed_out = True
-            # Preserve the historical wall-clock message when --timeout is set.
-            reported = timeout if timeout and timeout > 0 else effective_max
-            timeout_reason = f"timeout after {reported}s"
-            break
-        if effective_inactivity and effective_inactivity > 0 and now - activity["last"] > effective_inactivity:
-            timed_out = True
-            timeout_reason = f"pipe inactivity after {effective_inactivity}s"
-            break
-        time.sleep(0.05)
+    try:
+        while True:
+            exited = proc.poll() is not None
+            readers_done = not stdout_thread.is_alive() and not stderr_thread.is_alive()
+            # A dead parent can leave pipes open via inherited children. Do not treat
+            # poll() alone as completion; wait until readers see EOF or a deadline hits.
+            if exited and readers_done:
+                break
+            now = time.time()
+            if effective_max and effective_max > 0 and now - start_time > effective_max:
+                timed_out = True
+                # Preserve the historical wall-clock message when --timeout is set.
+                reported = timeout if timeout and timeout > 0 else effective_max
+                timeout_reason = f"timeout after {reported}s"
+                break
+            if effective_inactivity and effective_inactivity > 0 and now - activity["last"] > effective_inactivity:
+                timed_out = True
+                timeout_reason = f"pipe inactivity after {effective_inactivity}s"
+                break
+            time.sleep(0.05)
+    finally:
+        if os.name == "posix":
+            try:
+                signal.signal(signal.SIGTERM, orig_sigterm)
+                signal.signal(signal.SIGINT, orig_sigint)
+            except (ValueError, OSError):
+                pass
 
     if timed_out:
         stdout, stderr = _drain_process(proc, stdout_chunks, stderr_chunks, stdout_thread, stderr_thread)
@@ -1160,7 +1188,7 @@ def parse_tools_from_stdout(stdout):
     return sorted(list(set(mcp_tools + opencode_tools + calling_tools)))
 
 
-def find_latest_opencode_session(start_ms: int, cwd: Path | str | None = None) -> str | None:
+def find_latest_opencode_session(start_ms: int, cwd: Path | str | None = None, end_ms: int | None = None) -> str | None:
     db = Path.home() / ".local" / "share" / "opencode" / "opencode.db"
     if not db.is_file():
         return None
@@ -1168,10 +1196,17 @@ def find_latest_opencode_session(start_ms: int, cwd: Path | str | None = None) -
         import sqlite3
         conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
         cur = conn.cursor()
-        cur.execute(
-            "SELECT id FROM session WHERE time_created >= ? ORDER BY time_created DESC LIMIT 1",
-            (max(0, start_ms - 3000),)
-        )
+        query = "SELECT id FROM session WHERE time_created >= ?"
+        params: list[Any] = [max(0, start_ms - 3000)]
+        if end_ms is not None:
+            query += " AND time_created <= ?"
+            params.append(end_ms + 3000)
+        if cwd:
+            resolved_cwd = str(Path(cwd).resolve())
+            query += " AND (directory = ? OR directory = ?)"
+            params.extend([str(cwd), resolved_cwd])
+        query += " ORDER BY time_created DESC LIMIT 1"
+        cur.execute(query, params)
         row = cur.fetchone()
         conn.close()
         return row[0] if row else None
@@ -1255,7 +1290,8 @@ def execute_agent_attempts(
                 "stdout": exc.stdout or "",
                 "stderr": f"timeout after {effective_timeout}s",
             }
-        sess_id = find_latest_opencode_session(start_ms, cwd)
+        end_ms = int(time.time() * 1000)
+        sess_id = find_latest_opencode_session(start_ms, cwd, end_ms=end_ms)
         if sess_id:
             last_session_id = sess_id
             attempt["session_id"] = sess_id
@@ -1820,7 +1856,7 @@ def run_task(args):
     cooldown_seconds = int(((config.get("model_routing") or {}).get("cooldown_seconds") or 900))
     autonomy = agent_cfg.get("autonomy", "read_only")
     workspace_cfg, workspace_cwd, memory_namespace = resolve_workspace_options(getattr(args, "workspace", None))
-    run_cwd = workspace_cwd or Path.cwd()
+    run_cwd = workspace_cwd or (Path(args.cwd) if getattr(args, "cwd", None) else Path.cwd())
     prompt = " ".join(args.prompt).strip()
     if not prompt:
         raise SystemExit("Prompt is required")
@@ -2008,11 +2044,21 @@ def resume_task_cmd(args):
     if not getattr(args, "json", False):
         print(f"Resuming task {args.task_id} on session '{session_id}' using model '{target_model}'...", file=sys.stderr, flush=True)
 
+    orig_mode = task.get("mode", "run")
+    is_iterate = orig_mode == "iterate" or bool(task.get("check")) or bool(task.get("eval_artifacts"))
+
     sub_args = argparse.Namespace(
         agent=task.get("agent", "oracle"),
         prompt=[resume_prompt],
+        goal=[resume_prompt],
+        check=task.get("check"),
+        eval_artifact=task.get("eval_artifacts", []) or task.get("eval_artifact", []),
+        eval_artifacts=task.get("eval_artifacts", []),
+        max_rounds=task.get("max_rounds", 5),
+        max_same_failure=task.get("max_same_failure", 2),
         model=target_model,
         workspace=task.get("workspace"),
+        cwd=task.get("cwd"),
         approve=getattr(args, "approve", []) or task.get("approved_capabilities", []),
         fallback=getattr(args, "fallback", False),
         timeout=getattr(args, "timeout", 0),
@@ -2025,6 +2071,8 @@ def resume_task_cmd(args):
         fork=getattr(args, "fork", True),
         resumed_from_task_id=args.task_id,
     )
+    if is_iterate:
+        return iterate_cmd(sub_args)
     return run_task(sub_args)
 
 
@@ -2057,7 +2105,7 @@ def iterate_cmd(args):
     cooldown_seconds = int(((config.get("model_routing") or {}).get("cooldown_seconds") or 900))
     autonomy = agent_cfg.get("autonomy", "read_only")
     workspace_cfg, workspace_cwd, memory_namespace = resolve_workspace_options(getattr(args, "workspace", None))
-    run_cwd = workspace_cwd or Path.cwd()
+    run_cwd = workspace_cwd or (Path(args.cwd) if getattr(args, "cwd", None) else Path.cwd())
     goal = " ".join(args.goal).strip()
     if not goal:
         raise SystemExit("Goal is required")
@@ -2314,6 +2362,8 @@ def iterate_cmd(args):
         )
         (rd / "prompt.txt").write_text(prompt + "\n", encoding="utf-8")
         _log(f"[Round {round_num}] Dispatching agent '{args.agent}' using tool '{tool}' on model '{model}'...")
+        initial_sess = getattr(args, "session_id", None) if round_num == 1 else None
+        fork_sess = getattr(args, "fork", False) if round_num == 1 else True
         attempts, final_attempt = execute_agent_attempts(
             agent_cfg,
             tool,
@@ -2326,6 +2376,8 @@ def iterate_cmd(args):
             event_capture=event_capture,
             routing_fallbacks=routing_fallbacks,
             cooldown_seconds=cooldown_seconds,
+            session_id=initial_sess,
+            fork=fork_sess,
         )
         for attempt in attempts:
             idx = attempt["attempt"]
