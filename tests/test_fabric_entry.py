@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import stat
 import subprocess
 import tempfile
 import unittest
@@ -14,8 +15,51 @@ from runtime_agents import fabric_entry
 from runtime_agents import quota_watcher
 
 
-FABRIC_BIN = shutil.which("contract-fabric") or str(Path.home() / ".local" / "bin" / "contract-fabric")
 SOURCE_COMMIT = "e7750e7c0f9d63faadf067505e60ad5a3d147383"
+_MOCK_FABRIC_DIR = None
+
+
+def _fabric_candidate():
+    found = shutil.which("contract-fabric")
+    if found and os.access(found, os.X_OK):
+        return found
+    home_bin = Path.home() / ".local" / "bin" / "contract-fabric"
+    if home_bin.is_file() and os.access(home_bin, os.X_OK):
+        return str(home_bin)
+    return None
+
+
+def setUpModule():
+    global FABRIC_BIN, _MOCK_FABRIC_DIR
+    existing = _fabric_candidate()
+    if existing:
+        FABRIC_BIN = existing
+        return
+    _MOCK_FABRIC_DIR = tempfile.TemporaryDirectory(prefix="fabric-mock-")
+    script = Path(_MOCK_FABRIC_DIR.name) / "contract-fabric"
+    prov_schema = fabric_entry.EXPECTED_SCHEMA_SHA256
+    prov_spec = fabric_entry.EXPECTED_SPEC_SHA256
+    script.write_text(
+        "#!/usr/bin/env python3\n"
+        "import sys, json\n"
+        "cmd = sys.argv[1] if len(sys.argv) > 1 else ''\n"
+        f"prov = {{'schema_sha256': '{prov_schema}', 'spec_sha256': '{prov_spec}'}}\n"
+        "if cmd == 'materialize-local':\n"
+        "    payload = {'mode': 'local', 'admission': {'eligibility_pool': 'default'}, 'provenance': prov}\n"
+        "elif cmd == 'inspect-local':\n"
+        "    payload = {'found': False, 'snapshot_count': 0, 'provenance': prov}\n"
+        "else:\n"
+        "    payload = {'provenance': prov}\n"
+        "print(json.dumps(payload))\n",
+        encoding="utf-8",
+    )
+    script.chmod(script.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+    FABRIC_BIN = str(script)
+
+
+def tearDownModule():
+    if _MOCK_FABRIC_DIR is not None:
+        _MOCK_FABRIC_DIR.cleanup()
 
 
 def _fixture_files(root: Path) -> tuple[dict, dict, dict, Path, Path]:

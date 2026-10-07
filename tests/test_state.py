@@ -30,6 +30,14 @@ class StateHelpersTests(unittest.TestCase):
         latest = state.latest_by_id(events, "id")
         self.assertEqual(latest["a"]["status"], "running")
 
+    def test_append_jsonl_repairs_missing_trailing_newline(self):
+        path = self.tmp / "truncated.jsonl"
+        path.write_text('{"id": "a", "status": "queued"}', encoding="utf-8")
+        state.append_jsonl(path, {"id": "b", "status": "running"})
+        events = state.read_jsonl(path)
+        self.assertEqual(events[0]["id"], "a")
+        self.assertEqual(events[1], {"id": "b", "status": "running"})
+
     def test_atomic_write_and_read_json(self):
         path = self.tmp / "x.json"
         state.atomic_write_json(path, {"ok": True})

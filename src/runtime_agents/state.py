@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 
 
@@ -20,8 +21,14 @@ def read_jsonl(path: Path) -> list[dict]:
 
 
 def append_jsonl(path: Path, event: dict) -> None:
+    prefix = ""
+    if path.exists() and path.stat().st_size > 0:
+        with path.open("rb") as existing:
+            existing.seek(-1, os.SEEK_END)
+            if existing.read(1) != b"\n":
+                prefix = "\n"
     with path.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(event, sort_keys=True) + "\n")
+        f.write(prefix + json.dumps(event, sort_keys=True) + "\n")
 
 
 def latest_by_id(events: list[dict], id_key: str) -> dict:

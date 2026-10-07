@@ -490,18 +490,18 @@ def read_schedule_events():
 
 
 def latest_schedules():
-    by_id = state_mod.latest_by_id(read_schedule_events(), "schedule_id")
-    by_name = state_mod.latest_by_id(read_schedule_events(), "name")
-    merged = {**by_name, **by_id}
-    return merged
+    return state_mod.latest_by_id(read_schedule_events(), "schedule_id")
 
 
 def schedule_by_name(name):
     schedules = latest_schedules()
-    if name in schedules:
-        return schedules[name]
-    sid = schedule_id(name)
-    return schedules.get(sid)
+    direct = schedules.get(name) or schedules.get(schedule_id(name))
+    if direct:
+        return direct
+    for schedule in schedules.values():
+        if schedule.get("name") == name:
+            return schedule
+    return None
 
 
 def latest_queue_items():
@@ -518,10 +518,34 @@ def queue_item_for_task_id(task_id_value):
     return {}
 
 
+def is_queue_item_eligible(item, latest):
+    if item.get("status") != "queued":
+        return False
+    dependencies = item.get("depends_on") or []
+    for dep in dependencies:
+        if item.get("plan_id"):
+            completed = False
+            for other in latest.values():
+                if (
+                    other.get("plan_id") == item.get("plan_id")
+                    and str(other.get("subtask_id")) == str(dep)
+                    and other.get("status") == "completed"
+                ):
+                    completed = True
+                    break
+            if not completed:
+                return False
+        else:
+            dep_item = latest.get(str(dep))
+            if not dep_item or dep_item.get("status") != "completed":
+                return False
+    return True
+
+
 def first_queued_item():
     latest = latest_queue_items()
-    for qid, item in latest.items():
-        if item.get("status") == "queued":
+    for _qid, item in latest.items():
+        if is_queue_item_eligible(item, latest):
             return item
     return None
 
@@ -2946,22 +2970,28 @@ def classify_validation_artifact_queue_item(item):
             "safe_to_cancel": False,
         }
 
+    created_from = str(item.get("created_from") or "")
+    workspace = str(item.get("workspace") or "")
+    cwd = str(item.get("cwd") or "")
+    schedule_id_value = str(item.get("schedule_id") or "")
+    goal = str(item.get("goal") or "")
     field_values = {
-        "goal": item.get("goal") or "",
-        "created_from": item.get("created_from") or "",
-        "workspace": item.get("workspace") or "",
-        "cwd": item.get("cwd") or "",
-        "schedule_id": item.get("schedule_id") or "",
-        "plan_id": item.get("plan_id") or "",
-        "reason": item.get("reason") or "",
-        "task_id": item.get("task_id") or "",
+        "goal": goal,
+        "created_from": created_from,
+        "workspace": workspace,
+        "cwd": cwd,
+        "schedule_id": schedule_id_value,
     }
     matches = []
-    for field, value in field_values.items():
-        lower_value = str(value).lower()
-        for marker in ("telegram selftest", "selftest", "validation", "smoke", "test-ws", "/tmp/opencode"):
-            if marker in lower_value:
-                matches.append((field, marker))
+    created_from_lower = created_from.lower()
+    if created_from_lower in {"selftest", "telegram_selftest", "smoke"} or "selftest" in created_from_lower:
+        matches.append(("created_from", created_from_lower))
+    if workspace in {"test-ws"} or cwd in {"test-ws", "/tmp/opencode"} or workspace == "/tmp/opencode" or "/tmp/opencode" in cwd:
+        matches.append(("workspace" if workspace in {"test-ws", "/tmp/opencode"} else "cwd", workspace or cwd))
+    if schedule_id_value.lower().startswith("selftest-"):
+        matches.append(("schedule_id", "selftest-"))
+    if "selftest" in goal.lower():
+        matches.append(("goal", "selftest"))
 
     if not matches:
         return {
@@ -2975,15 +3005,15 @@ def classify_validation_artifact_queue_item(item):
 
     fields = sorted({field for field, _marker in matches})
     markers = sorted({marker for _field, marker in matches})
-    if "telegram selftest" in markers or "selftest" in markers or "validation" in str(field_values["created_from"]).lower():
+    if any("selftest" in marker for marker in markers):
         confidence = "high"
-        reason = "goal_contains_selftest" if "goal" in fields and "selftest" in markers else "known_validation_metadata"
-    elif any(marker in markers for marker in ("validation", "smoke", "/tmp/opencode")):
-        confidence = "medium"
-        reason = "matched_validation_marker"
-    else:
+        reason = "goal_contains_selftest" if "goal" in fields else "known_validation_metadata"
+    elif any(marker in {"test-ws", "/tmp/opencode"} or marker.endswith("/tmp/opencode") for marker in markers):
         confidence = "low"
         reason = "weak_test_workspace_marker"
+    else:
+        confidence = "medium"
+        reason = "matched_validation_marker"
 
     return {
         "matched": True,
@@ -3045,8 +3075,6 @@ def run_next_cmd(args):
                 append_queue({"queue_id": item["queue_id"], "status": "failed", "ended_at": now_iso(), "task_id": None, "returncode": 2, "error": f"Invalid queued cwd: {cwd}"})
                 print_json({"queue_id": item["queue_id"], "status": "failed", "task_id": None, "returncode": 2, "stderr": f"Invalid queued cwd: {cwd}"})
                 return 2
-            started = {"queue_id": item["queue_id"], "status": "running", "started_at": now_iso(), "cwd": str(cwd)}
-            append_queue(started)
             goal = item["goal"]
             memory_opts = item.get("memory") or {"enabled": False, "reason": "legacy_queue_item"}
             effective_goal, memory_recall = apply_memory_prelude(goal, item.get("memory_namespace"), memory_opts.get("query") or goal, memory_opts)
@@ -3056,10 +3084,24 @@ def run_next_cmd(args):
             else:
                 cmd = [sys.executable, "-m", "runtime_agents.cli", "run", item["agent"], effective_goal, "--no-memory"]
 
-            proc = subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=cwd)
-            task_id_value = extract_task_id(proc.stdout)
+            popen_kwargs = {
+                "text": True,
+                "stdout": subprocess.PIPE,
+                "stderr": subprocess.PIPE,
+                "cwd": cwd,
+            }
+            if os.name == "posix":
+                popen_kwargs["start_new_session"] = True
+            proc = subprocess.Popen(cmd, **popen_kwargs)
+            started = {"queue_id": item["queue_id"], "status": "running", "started_at": now_iso(), "cwd": str(cwd), "pid": proc.pid}
+            append_queue(started)
+            stdout, stderr = proc.communicate()
+            task_id_value = extract_task_id(stdout)
+            if latest_queue_items().get(item["queue_id"], {}).get("status") == "cancelled":
+                print_json({"queue_id": item["queue_id"], "status": "cancelled", "task_id": task_id_value, "returncode": proc.returncode, "cwd": str(cwd)})
+                return 0
             status = "completed" if proc.returncode == 0 else "failed"
-            failure_class, retry_recommended = classify_process_failure(proc.returncode, proc.stdout, proc.stderr)
+            failure_class, retry_recommended = classify_process_failure(proc.returncode, stdout, stderr)
             if proc.returncode != 0 and not failure_class and task_id_value:
                 failure_class, retry_recommended = classify_task_failure(task_id_value)
             done = {
@@ -3110,7 +3152,7 @@ def run_next_cmd(args):
                             meta["retry_of_task_id"] = item.get("retry_of_task_id")
                     write_json(run_dir / "metadata.json", meta)
                     append_task(meta)
-            print_json({"queue_id": item["queue_id"], "status": status, "task_id": task_id_value, "returncode": proc.returncode, "cwd": str(cwd), "memory_recall": memory_recall, "stdout": proc.stdout, "stderr": proc.stderr})
+            print_json({"queue_id": item["queue_id"], "status": status, "task_id": task_id_value, "returncode": proc.returncode, "cwd": str(cwd), "memory_recall": memory_recall, "stdout": stdout, "stderr": stderr})
             return proc.returncode
     except BlockingIOError:
         print_json({"status": "locked", "message": "Another run-next/agentd worker holds queue.lock"})
@@ -3118,6 +3160,17 @@ def run_next_cmd(args):
 
 
 def cancel_queue_item(queue_id_value, reason="cancelled", *, previous_status=None, cancelled_by="agentctl"):
+    item = latest_queue_items().get(queue_id_value) or {}
+    pid = item.get("pid")
+    if previous_status == "running" and pid:
+        try:
+            pid_value = int(pid)
+            if os.name == "posix":
+                os.killpg(os.getpgid(pid_value), signal.SIGTERM)
+            else:
+                os.kill(pid_value, signal.SIGTERM)
+        except (ProcessLookupError, OSError, ValueError):
+            pass
     payload = {
         "queue_id": queue_id_value,
         "status": "cancelled",
@@ -5327,7 +5380,7 @@ def writeback_cmd(args):
         raise SystemExit(f"Unknown task id: {args.task_id}")
     run_dir = Path(task["run_dir"])
     queue_item = latest_queue_items().get(task.get("queue_id")) or queue_item_for_task_id(args.task_id)
-    namespace = queue_item.get("memory_namespace")
+    namespace = queue_item.get("memory_namespace") or task.get("memory_namespace")
     if not namespace:
         raise SystemExit(f"Task {args.task_id} has no memory_namespace. Cannot write back.")
     writeback_path = run_dir / "writeback.json"
@@ -5416,6 +5469,8 @@ def writeback_cmd(args):
         results.append(result)
     def _writeback_failed(record) -> bool:
         if not record or not record.get("ok") or record.get("isError") or not record.get("id"):
+            return True
+        if getattr(args, "verify", False) and record.get("verified") is not True:
             return True
         response = record.get("response")
         return isinstance(response, dict) and bool(response.get("isError"))

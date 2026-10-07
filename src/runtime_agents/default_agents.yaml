@@ -75,6 +75,28 @@ agents:
       - git_push
       - deploy
 
+  planner:
+    tool: opencode
+    model: local/gpt-6-astra
+    routing_frame: review
+    opencode_agent: oracle
+    autonomy: read_only
+    approval_required:
+      - workspace_write
+      - git_push
+      - deploy
+
+  reviewer:
+    tool: opencode
+    model: local/gpt-6-astra
+    routing_frame: review
+    opencode_agent: oracle
+    autonomy: read_only
+    approval_required:
+      - workspace_write
+      - git_push
+      - deploy
+
   explorer:
     tool: opencode
     model: local/gemini-3.8-flash-high

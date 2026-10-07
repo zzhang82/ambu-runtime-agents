@@ -1,7 +1,9 @@
 import json
 import os
+import select
 import subprocess
 import threading
+import time
 from pathlib import Path
 
 try:
@@ -72,9 +74,22 @@ class AMBAdapter:
         }
         args = {k: v for k, v in args.items() if v is not None}
         result = self.call_tool("store", args)
-        if not result.get("ok"):
-            return result
         payload = result.get("response") or {}
+        if (
+            not result.get("ok")
+            or result.get("isError")
+            or (isinstance(payload, dict) and payload.get("isError"))
+            or not (payload.get("id") if isinstance(payload, dict) else None)
+        ):
+            return {
+                "ok": False,
+                "isError": True,
+                "mode": self.mode,
+                "tool": "store",
+                "id": payload.get("id") if isinstance(payload, dict) else None,
+                "response": payload,
+                "error": result.get("error") or (payload.get("error") if isinstance(payload, dict) else None) or "tool returned error",
+            }
         return {
             "ok": True,
             "mode": self.mode,
@@ -137,8 +152,15 @@ class AMBAdapter:
             return rid
 
         def recv(rid, timeout_seconds=30):
-            # stdout readline is blocking; process timeout is handled by caller wait/kill on errors.
+            deadline = time.monotonic() + max(0.0, timeout_seconds)
             while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError(f"AMB stdio response timed out after {timeout_seconds}s")
+                if os.name == "posix":
+                    ready, _, _ = select.select([proc.stdout], [], [], remaining)
+                    if not ready:
+                        raise TimeoutError(f"AMB stdio response timed out after {timeout_seconds}s")
                 line = proc.stdout.readline()
                 if not line:
                     raise RuntimeError("AMB stdio server closed stdout")
@@ -160,6 +182,15 @@ class AMBAdapter:
             if method_is_tool:
                 rid = send("tools/call", {"name": tool_name, "arguments": arguments})
                 raw = recv(rid)
+                if isinstance(raw, dict) and raw.get("isError"):
+                    return {
+                        "ok": False,
+                        "isError": True,
+                        "mode": self.mode,
+                        "tool": tool_name,
+                        "response": self._extract_tool_payload(raw),
+                        "error": raw.get("error") or "tool returned error",
+                    }
                 response = self._extract_tool_payload(raw)
             else:
                 rid = send(tool_name, arguments or {})

@@ -925,18 +925,18 @@ class RuntimeAgentsSmokeTests(unittest.TestCase):
         self.assertFalse(skipped["classification"]["safe_to_cancel"])
         self.assertEqual(json.loads(run_cli(["queue", "show", queue_id, "--json"], self.env).stdout)["status"], "queued")
 
-    def test_cleanup_validation_cancels_medium_smoke_marker(self):
-        submit = run_cli(["submit", "planner", "smoke", "validation", "artifact", "--check", "true", "--max-rounds", "1", "--cwd", str(ROOT)], self.env)
+    def test_cleanup_validation_does_not_cancel_user_goal_containing_validation(self):
+        submit = run_cli(["submit", "planner", "Implement", "validation", "for", "invoice", "totals", "--check", "true", "--max-rounds", "1", "--cwd", str(ROOT)], self.env)
         self.assertEqual(submit.returncode, 0, submit.stderr)
         queue_id = json.loads(submit.stdout)["queue_id"]
 
         cleanup = run_cli(["queue", "cleanup-validation", "--json"], self.env)
         self.assertEqual(cleanup.returncode, 0, cleanup.stderr)
         payload = json.loads(cleanup.stdout)
-        cancelled = next(item for item in payload["cancelled"] if item["queue_id"] == queue_id)
-        self.assertEqual(cancelled["classification"]["confidence"], "medium")
-        self.assertTrue(cancelled["classification"]["safe_to_cancel"])
-        self.assertEqual(json.loads(run_cli(["queue", "show", queue_id, "--json"], self.env).stdout)["status"], "cancelled")
+        self.assertFalse(any(item["queue_id"] == queue_id for item in payload["cancelled"]))
+        skipped = next(item for item in payload["skipped"] if item["queue_id"] == queue_id)
+        self.assertFalse(skipped["classification"]["safe_to_cancel"])
+        self.assertEqual(json.loads(run_cli(["queue", "show", queue_id, "--json"], self.env).stdout)["status"], "queued")
 
     def test_schedule_add_show_remove(self):
         add = run_cli(["schedule", "add", "test-health", "--workspace", "test-ws", "--type", "run", "--agent", "planner", "--goal", "check health", "--cron", "* * * * *"], self.env)
