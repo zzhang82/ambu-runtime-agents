@@ -104,6 +104,53 @@ class AuditHardeningTests(unittest.TestCase):
             self.assertEqual(called_args["cwd"], "/original/project")
             self.assertEqual(called_args["session_id"], "ses_A")
 
+    def test_run_worker_timeout_survives_metadata_roundtrip(self):
+        task_meta = {
+            "task_id": "test-timeout-roundtrip",
+            "agent": "coder",
+            "model": "test/model",
+            "goal": "implement timeout",
+            "session_id": "ses_timeout",
+            "workspace": None,
+            "cwd": "/original/project",
+            "mode": "run",
+            "timeout": 91,
+            "approved_capabilities": [],
+        }
+        with patch.object(cli, "RUNS_DIR", Path("/unused")), \
+             patch.object(cli, "latest_task", return_value=task_meta), \
+             patch.object(cli, "run_task", return_value=0) as mock_run:
+            args = argparse.Namespace(task_id="test-timeout-roundtrip", model=None, prompt=None, json=True)
+            cli.resume_task_cmd(args)
+            mock_run.assert_called_once()
+            resumed_args = vars(mock_run.call_args.args[0])
+            self.assertEqual(resumed_args.get("timeout"), 91)
+
+    def test_no_end_or_id_must_not_resume_arbitrary_later_session(self):
+        with tempfile.TemporaryDirectory() as td:
+            home = Path(td)
+            db = home / ".local" / "share" / "opencode" / "opencode.db"
+            make_test_db(db, [("later_unrelated", "/workspace/A", 900000, 901000)])
+            task_meta = {
+                "task_id": "unended-task",
+                "agent": "coder",
+                "model": "test/model",
+                "goal": "unended",
+                "session_id": None,
+                "cwd": "/workspace/A",
+                "started_at": "1970-01-01T00:01:40Z",
+                "ended_at": None,
+                "status": "running",
+                "mode": "run",
+            }
+            with patch.object(cli, "RUNS_DIR", Path("/unused")), \
+                 patch.object(cli, "latest_task", return_value=task_meta), \
+                 patch.object(Path, "home", return_value=home):
+                args = argparse.Namespace(task_id="unended-task", model=None, prompt=None, json=True)
+                with self.assertRaises(SystemExit) as raised:
+                    cli.resume_task_cmd(args)
+                self.assertIn("No OpenCode session recorded", str(raised.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1960,6 +1960,8 @@ def run_task(args):
         "memory_recall": memory_recall,
         "resumed_from": resumed_from,
         "session_id": initial_session_id,
+        "timeout": getattr(args, "timeout", None),
+        "inactivity_timeout": getattr(args, "inactivity_timeout", None),
     }
     write_json(run_dir / "metadata.json", base_meta)
     append_task(base_meta)
@@ -1982,21 +1984,41 @@ def run_task(args):
     if not getattr(args, "json", False):
         print(f"[{args.agent}] Starting task {tid} ({autonomy}) via tool '{tool}' on model '{model}'...", file=sys.stderr, flush=True)
 
-    attempts, final = execute_agent_attempts(
-        agent_cfg,
-        tool,
-        model,
-        effective_prompt,
-        autonomy,
-        args.fallback,
-        args.timeout,
-        cwd=run_cwd,
-        event_capture=event_capture,
-        routing_fallbacks=routing_fallbacks,
-        cooldown_seconds=cooldown_seconds,
-        session_id=initial_session_id,
-        fork=fork_session,
-    )
+    try:
+        attempts, final = execute_agent_attempts(
+            agent_cfg,
+            tool,
+            model,
+            effective_prompt,
+            autonomy,
+            args.fallback,
+            args.timeout,
+            cwd=run_cwd,
+            event_capture=event_capture,
+            routing_fallbacks=routing_fallbacks,
+            cooldown_seconds=cooldown_seconds,
+            session_id=initial_session_id,
+            fork=fork_session,
+        )
+    except BaseException as exc:
+        ended_at = now_iso()
+        term_meta = {
+            **base_meta,
+            "status": "cancelled",
+            "ended_at": ended_at,
+            "error": str(exc) or "cancelled",
+        }
+        write_json(run_dir / "metadata.json", term_meta)
+        rc = 130 if isinstance(exc, KeyboardInterrupt) else (exc.code if isinstance(exc, SystemExit) and isinstance(exc.code, int) else 143)
+        write_json(run_dir / "result.json", {
+            "task_id": tid,
+            "status": "cancelled",
+            "returncode": rc,
+            "error": str(exc) or "cancelled",
+        })
+        append_task(term_meta)
+        raise
+
     attempts, final = normalize_attempt_text_fields(attempts, final)
     for attempt in attempts:
         index = attempt["attempt"]
@@ -2039,14 +2061,12 @@ def resume_task_cmd(args):
         raise SystemExit(f"Unknown task id: {args.task_id}")
 
     session_id = task.get("session_id")
-    if not session_id and task.get("started_at"):
+    if not session_id and task.get("started_at") and task.get("ended_at"):
         try:
             start_dt = datetime.fromisoformat(task["started_at"].replace("Z", "+00:00"))
             start_ms = int(start_dt.timestamp() * 1000)
-            end_ms = None
-            if task.get("ended_at"):
-                end_dt = datetime.fromisoformat(task["ended_at"].replace("Z", "+00:00"))
-                end_ms = int(end_dt.timestamp() * 1000)
+            end_dt = datetime.fromisoformat(task["ended_at"].replace("Z", "+00:00"))
+            end_ms = int(end_dt.timestamp() * 1000)
             session_id = find_latest_opencode_session(start_ms, task.get("cwd"), end_ms=end_ms)
         except Exception:
             session_id = None
@@ -2272,8 +2292,12 @@ def iterate_cmd(args):
         "ended_at": None,
         "goal": goal,
         "check": args.check,
+        "check_timeout": getattr(args, "check_timeout", None),
+        "timeout": getattr(args, "timeout", None),
+        "inactivity_timeout": getattr(args, "inactivity_timeout", None),
         "eval_artifacts": eval_artifacts,
         "max_rounds": args.max_rounds,
+        "max_same_failure": getattr(args, "max_same_failure", 2) or 2,
         "rounds": 0,
         "final_check_passed": False,
         "fallback_used": False,
@@ -2320,208 +2344,220 @@ def iterate_cmd(args):
                 }
         return res
 
-    round_results = []
-    initial_dir = rounds_dir / "0"
-    initial_dir.mkdir(parents=True, exist_ok=True)
-    _log(f"[Round 0] Evaluating initial check: {args.check or 'artifacts only'}")
-    check_result = _run_evaluation(args.check, eval_artifacts)
-    initial_fp = loop_engine_mod.fingerprint_check_failure(check_result.get("stdout", ""), check_result.get("stderr", ""), check_result.get("returncode", 1))
-    initial_gap, initial_gap_detail = loop_engine_mod.classify_gap(check_result.get("stdout", ""), check_result.get("stderr", ""), check_result.get("returncode", 1))
-    (initial_dir / "check-stdout.log").write_text(check_result["stdout"], encoding="utf-8")
-    (initial_dir / "check-stderr.log").write_text(check_result["stderr"], encoding="utf-8")
-    write_json(initial_dir / "result.json", {
-        "round": 0,
-        "type": "initial_check",
-        "check": check_result,
-        "fingerprint": initial_fp,
-        "gap_classification": initial_gap,
-        "gap_detail": initial_gap_detail,
-    })
-    if check_result["returncode"] == 0:
-        _log("[Round 0] Check passed immediately. Task completed.")
-        meta = {**base_meta, "status": "completed", "ended_at": now_iso(), "rounds": 0, "final_check_passed": True}
-        result = {"task_id": tid, "status": "completed", "agent": args.agent, "rounds": 0, "max_rounds": args.max_rounds, "check": args.check, "eval_artifacts": eval_artifacts, "final_check_passed": True}
-        if getattr(args, "tail", None) is not None:
-            result["check_stdout_tail"] = tail_lines(check_result.get("stdout", ""), args.tail)
-            result["check_stderr_tail"] = tail_lines(check_result.get("stderr", ""), args.tail)
-        write_json(run_dir / "metadata.json", meta)
-        write_json(run_dir / "result.json", result)
-        append_task(meta)
-        event_capture.finish(outcome="completed", summary="Check passed immediately")
-        print_json(result)
-        return 0
+    try:
+        round_results = []
+        initial_dir = rounds_dir / "0"
+        initial_dir.mkdir(parents=True, exist_ok=True)
+        _log(f"[Round 0] Evaluating initial check: {args.check or 'artifacts only'}")
+        check_result = _run_evaluation(args.check, eval_artifacts)
+        initial_fp = loop_engine_mod.fingerprint_check_failure(check_result.get("stdout", ""), check_result.get("stderr", ""), check_result.get("returncode", 1))
+        initial_gap, initial_gap_detail = loop_engine_mod.classify_gap(check_result.get("stdout", ""), check_result.get("stderr", ""), check_result.get("returncode", 1))
+        (initial_dir / "check-stdout.log").write_text(check_result["stdout"], encoding="utf-8")
+        (initial_dir / "check-stderr.log").write_text(check_result["stderr"], encoding="utf-8")
+        write_json(initial_dir / "result.json", {
+            "round": 0,
+            "type": "initial_check",
+            "check": check_result,
+            "fingerprint": initial_fp,
+            "gap_classification": initial_gap,
+            "gap_detail": initial_gap_detail,
+        })
+        if check_result["returncode"] == 0:
+            _log("[Round 0] Check passed immediately. Task completed.")
+            meta = {**base_meta, "status": "completed", "ended_at": now_iso(), "rounds": 0, "final_check_passed": True}
+            result = {"task_id": tid, "status": "completed", "agent": args.agent, "rounds": 0, "max_rounds": args.max_rounds, "check": args.check, "eval_artifacts": eval_artifacts, "final_check_passed": True}
+            if getattr(args, "tail", None) is not None:
+                result["check_stdout_tail"] = tail_lines(check_result.get("stdout", ""), args.tail)
+                result["check_stderr_tail"] = tail_lines(check_result.get("stderr", ""), args.tail)
+            write_json(run_dir / "metadata.json", meta)
+            write_json(run_dir / "result.json", result)
+            append_task(meta)
+            event_capture.finish(outcome="completed", summary="Check passed immediately")
+            print_json(result)
+            return 0
 
-    _log(f"[Round 0] Check failed (exit {check_result['returncode']}). Gap: {initial_gap} ({initial_gap_detail}). Fingerprint: {initial_fp}")
-    max_same_failure = getattr(args, "max_same_failure", 2) or 2
-    failure_counts = {initial_fp: 1}
-    last_fingerprint = initial_fp
-    last_gap = initial_gap
-    last_gap_detail = initial_gap_detail
-    rounds_with_same_blocker = 1
-    halt_reason = None
+        _log(f"[Round 0] Check failed (exit {check_result['returncode']}). Gap: {initial_gap} ({initial_gap_detail}). Fingerprint: {initial_fp}")
+        max_same_failure = getattr(args, "max_same_failure", 2) or 2
+        failure_counts = {initial_fp: 1}
+        last_fingerprint = initial_fp
+        last_gap = initial_gap
+        last_gap_detail = initial_gap_detail
+        rounds_with_same_blocker = 1
+        halt_reason = None
 
-    final_status = "failed"
-    final_check_passed = False
-    fallback_used = False
-    last_check = check_result
-    for round_num in range(1, args.max_rounds + 1):
-        _log(f"\n[Round {round_num}/{args.max_rounds}] Preparing agent dispatch...")
-        routing = model_catalog_mod.dispatch_preflight(config, args.agent, args.model)
-        model = routing.get("selected_model")
-        if not model and routing.get("required"):
-            _log(f"[Round {round_num}] Preflight failed: {routing.get('skipped')}")
-            round_result = {"round": round_num, "agent_returncode": None, "attempts": [], "check": None, "routing_error": routing.get("skipped")}
+        final_status = "failed"
+        final_check_passed = False
+        fallback_used = False
+        last_check = check_result
+        for round_num in range(1, args.max_rounds + 1):
+            _log(f"\n[Round {round_num}/{args.max_rounds}] Preparing agent dispatch...")
+            routing = model_catalog_mod.dispatch_preflight(config, args.agent, args.model)
+            model = routing.get("selected_model")
+            if not model and routing.get("required"):
+                _log(f"[Round {round_num}] Preflight failed: {routing.get('skipped')}")
+                round_result = {"round": round_num, "agent_returncode": None, "attempts": [], "check": None, "routing_error": routing.get("skipped")}
+                rd = rounds_dir / str(round_num)
+                rd.mkdir(parents=True, exist_ok=True)
+                write_json(rd / "result.json", round_result)
+                round_results.append(round_result)
+                break
+            routing_fallbacks = [] if routing.get("explicit_override") else list(routing.get("fallbacks") or [])
             rd = rounds_dir / str(round_num)
             rd.mkdir(parents=True, exist_ok=True)
-            write_json(rd / "result.json", round_result)
-            round_results.append(round_result)
-            break
-        routing_fallbacks = [] if routing.get("explicit_override") else list(routing.get("fallbacks") or [])
-        rd = rounds_dir / str(round_num)
-        rd.mkdir(parents=True, exist_ok=True)
-        prompt = loop_engine_mod.build_iteration_prompt(
-            effective_goal,
-            args.check,
-            eval_artifacts,
-            tail_text(last_check.get("stdout", "")),
-            tail_text(last_check.get("stderr", "")),
-            last_gap,
-            last_gap_detail,
-            autonomy=autonomy,
-        )
-        (rd / "prompt.txt").write_text(prompt + "\n", encoding="utf-8")
-        _log(f"[Round {round_num}] Dispatching agent '{args.agent}' using tool '{tool}' on model '{model}'...")
-        initial_sess = getattr(args, "session_id", None) if round_num == 1 else None
-        fork_sess = getattr(args, "fork", False) if round_num == 1 else True
-        attempts, final_attempt = execute_agent_attempts(
-            agent_cfg,
-            tool,
-            model,
-            prompt,
-            autonomy,
-            args.fallback,
-            args.timeout,
-            cwd=run_cwd,
-            event_capture=event_capture,
-            routing_fallbacks=routing_fallbacks,
-            cooldown_seconds=cooldown_seconds,
-            session_id=initial_sess,
-            fork=fork_sess,
-        )
-        for attempt in attempts:
-            idx = attempt["attempt"]
-            (rd / f"attempt-{idx}-stdout.log").write_text(attempt["stdout"], encoding="utf-8")
-            (rd / f"attempt-{idx}-stderr.log").write_text(attempt["stderr"], encoding="utf-8")
-        if final_attempt and final_attempt.get("attempt", 1) > 1:
-            fallback_used = True
-        if not final_attempt or final_attempt["returncode"] != 0:
-            retcode = final_attempt.get('returncode') if final_attempt else 'None'
-            _log(f"[Round {round_num}] Agent execution failed (exit {retcode}).")
-            round_result = {"round": round_num, "agent_returncode": final_attempt.get("returncode") if final_attempt else None, "attempts": attempts, "check": None}
-            write_json(rd / "result.json", round_result)
-            round_results.append(round_result)
-            break
-        _log(f"[Round {round_num}] Agent completed successfully. Running verification check...")
-        last_check = _run_evaluation(args.check, eval_artifacts)
-        (rd / "stdout.log").write_text(final_attempt["stdout"], encoding="utf-8")
-        (rd / "stderr.log").write_text(final_attempt["stderr"], encoding="utf-8")
-        (rd / "check-stdout.log").write_text(last_check["stdout"], encoding="utf-8")
-        (rd / "check-stderr.log").write_text(last_check["stderr"], encoding="utf-8")
+            prompt = loop_engine_mod.build_iteration_prompt(
+                effective_goal,
+                args.check,
+                eval_artifacts,
+                tail_text(last_check.get("stdout", "")),
+                tail_text(last_check.get("stderr", "")),
+                last_gap,
+                last_gap_detail,
+                autonomy=autonomy,
+            )
+            (rd / "prompt.txt").write_text(prompt + "\n", encoding="utf-8")
+            _log(f"[Round {round_num}] Dispatching agent '{args.agent}' using tool '{tool}' on model '{model}'...")
+            initial_sess = getattr(args, "session_id", None) if round_num == 1 else None
+            fork_sess = getattr(args, "fork", False) if round_num == 1 else True
+            attempts, final_attempt = execute_agent_attempts(
+                agent_cfg,
+                tool,
+                model,
+                prompt,
+                autonomy,
+                args.fallback,
+                args.timeout,
+                cwd=run_cwd,
+                event_capture=event_capture,
+                routing_fallbacks=routing_fallbacks,
+                cooldown_seconds=cooldown_seconds,
+                session_id=initial_sess,
+                fork=fork_sess,
+            )
+            for attempt in attempts:
+                idx = attempt["attempt"]
+                (rd / f"attempt-{idx}-stdout.log").write_text(attempt["stdout"], encoding="utf-8")
+                (rd / f"attempt-{idx}-stderr.log").write_text(attempt["stderr"], encoding="utf-8")
+            if final_attempt and final_attempt.get("attempt", 1) > 1:
+                fallback_used = True
+            if not final_attempt or final_attempt["returncode"] != 0:
+                retcode = final_attempt.get('returncode') if final_attempt else 'None'
+                _log(f"[Round {round_num}] Agent execution failed (exit {retcode}).")
+                round_result = {"round": round_num, "agent_returncode": final_attempt.get("returncode") if final_attempt else None, "attempts": attempts, "check": None}
+                write_json(rd / "result.json", round_result)
+                round_results.append(round_result)
+                break
+            _log(f"[Round {round_num}] Agent completed successfully. Running verification check...")
+            last_check = _run_evaluation(args.check, eval_artifacts)
+            (rd / "stdout.log").write_text(final_attempt["stdout"], encoding="utf-8")
+            (rd / "stderr.log").write_text(final_attempt["stderr"], encoding="utf-8")
+            (rd / "check-stdout.log").write_text(last_check["stdout"], encoding="utf-8")
+            (rd / "check-stderr.log").write_text(last_check["stderr"], encoding="utf-8")
 
-        if last_check["returncode"] == 0:
-            _log(f"[Round {round_num}] Verification passed! Goal achieved.")
-            final_status = "completed"
-            final_check_passed = True
+            if last_check["returncode"] == 0:
+                _log(f"[Round {round_num}] Verification passed! Goal achieved.")
+                final_status = "completed"
+                final_check_passed = True
+                round_result = {
+                    "round": round_num,
+                    "agent_returncode": final_attempt["returncode"],
+                    "attempts": attempts,
+                    "check": last_check,
+                    "gap_classification": "none",
+                }
+                write_json(rd / "result.json", round_result)
+                round_results.append(round_result)
+                break
+
+            fp = loop_engine_mod.fingerprint_check_failure(last_check.get("stdout", ""), last_check.get("stderr", ""), last_check["returncode"])
+            gap, gap_detail = loop_engine_mod.classify_gap(last_check.get("stdout", ""), last_check.get("stderr", ""), last_check["returncode"])
+            should_stop, failure_counts, current_count = loop_engine_mod.should_halt(fp, failure_counts, max_same_failure=max_same_failure)
+            last_fingerprint = fp
+            last_gap = gap
+            last_gap_detail = gap_detail
+            rounds_with_same_blocker = current_count
+
             round_result = {
                 "round": round_num,
                 "agent_returncode": final_attempt["returncode"],
                 "attempts": attempts,
                 "check": last_check,
-                "gap_classification": "none",
+                "fingerprint": fp,
+                "gap_classification": gap,
+                "gap_detail": gap_detail,
+                "rounds_with_same_blocker": current_count,
             }
             write_json(rd / "result.json", round_result)
             round_results.append(round_result)
-            break
+            if should_stop:
+                halt_reason = "repeated_identical_failure"
+                _log(f"\n[ANTI-LOOP HALT] Identical failure reproduced {current_count} times; stopping early")
+                final_status = "blocked"
+                break
 
-        fp = loop_engine_mod.fingerprint_check_failure(last_check.get("stdout", ""), last_check.get("stderr", ""), last_check["returncode"])
-        gap, gap_detail = loop_engine_mod.classify_gap(last_check.get("stdout", ""), last_check.get("stderr", ""), last_check["returncode"])
-        should_stop, failure_counts, current_count = loop_engine_mod.should_halt(fp, failure_counts, max_same_failure=max_same_failure)
-        last_fingerprint = fp
-        last_gap = gap
-        last_gap_detail = gap_detail
-        rounds_with_same_blocker = current_count
-
-        round_result = {
-            "round": round_num,
-            "agent_returncode": final_attempt["returncode"],
-            "attempts": attempts,
-            "check": last_check,
-            "fingerprint": fp,
-            "gap_classification": gap,
-            "gap_detail": gap_detail,
-            "repeated_count": current_count,
+        rounds_count = len(round_results)
+        meta = {
+            **base_meta,
+            "status": final_status,
+            "ended_at": now_iso(),
+            "rounds": rounds_count,
+            "final_check_passed": final_check_passed,
+            "fallback_used": fallback_used,
+            "max_same_failure": max_same_failure,
+            "gap_classification": last_gap,
+            "gap_detail": last_gap_detail,
+            "blocker_fingerprint": last_fingerprint,
+            "rounds_with_same_blocker": rounds_with_same_blocker,
         }
-        if should_stop:
-            _log(f"[Round {round_num}] [ANTI-LOOP HALT] Identical blocker {fp} recurred {current_count} times (limit: {max_same_failure}). Halting to prevent quota burn.")
-            final_status = "blocked"
-            halt_reason = "repeated_identical_failure"
-            round_result["halted"] = True
-            round_result["halt_reason"] = halt_reason
-            event_capture.record_friction(f"blocked_anti_loop:{gap}:{fp}")
-            write_json(rd / "result.json", round_result)
-            round_results.append(round_result)
-            break
+        result = {
+            "task_id": tid,
+            "status": final_status,
+            "agent": args.agent,
+            "rounds": rounds_count,
+            "max_rounds": args.max_rounds,
+            "max_same_failure": max_same_failure,
+            "check": args.check,
+            "eval_artifacts": eval_artifacts,
+            "final_check_passed": final_check_passed,
+            "gap_classification": last_gap,
+            "gap_detail": last_gap_detail,
+            "blocker_fingerprint": last_fingerprint,
+            "rounds_with_same_blocker": rounds_with_same_blocker,
+        }
+        if halt_reason:
+            meta["halt_reason"] = halt_reason
+            result["halt_reason"] = halt_reason
 
-        _log(f"[Round {round_num}] Check failed (exit {last_check['returncode']}). Gap: {gap} ({gap_detail}). Fingerprint: {fp} (seen {current_count}x). Continuing loop...")
-        write_json(rd / "result.json", round_result)
-        round_results.append(round_result)
-
-    rounds_count = len(round_results)
-    meta = {
-        **base_meta,
-        "status": final_status,
-        "ended_at": now_iso(),
-        "rounds": rounds_count,
-        "final_check_passed": final_check_passed,
-        "fallback_used": fallback_used,
-        "max_same_failure": max_same_failure,
-        "gap_classification": last_gap,
-        "gap_detail": last_gap_detail,
-        "blocker_fingerprint": last_fingerprint,
-        "rounds_with_same_blocker": rounds_with_same_blocker,
-    }
-    result = {
-        "task_id": tid,
-        "status": final_status,
-        "agent": args.agent,
-        "rounds": rounds_count,
-        "max_rounds": args.max_rounds,
-        "max_same_failure": max_same_failure,
-        "check": args.check,
-        "eval_artifacts": eval_artifacts,
-        "final_check_passed": final_check_passed,
-        "gap_classification": last_gap,
-        "gap_detail": last_gap_detail,
-        "blocker_fingerprint": last_fingerprint,
-        "rounds_with_same_blocker": rounds_with_same_blocker,
-    }
-    if halt_reason:
-        meta["halt_reason"] = halt_reason
-        result["halt_reason"] = halt_reason
-
-    if getattr(args, "tail", None) is not None:
-        result["check_stdout_tail"] = tail_lines(last_check.get("stdout", ""), args.tail)
-        result["check_stderr_tail"] = tail_lines(last_check.get("stderr", ""), args.tail)
-    write_json(run_dir / "metadata.json", meta)
-    write_json(run_dir / "result.json", result)
-    append_task(meta)
-    event_capture.finish(outcome=final_status, summary=f"Iterate finished with {final_status} after {rounds_count} rounds")
-    print_json(result)
-    if final_check_passed:
-        return 0
-    if final_status == "blocked":
-        return 3
-    return 1
+        if getattr(args, "tail", None) is not None:
+            result["check_stdout_tail"] = tail_lines(last_check.get("stdout", ""), args.tail)
+            result["check_stderr_tail"] = tail_lines(last_check.get("stderr", ""), args.tail)
+        write_json(run_dir / "metadata.json", meta)
+        write_json(run_dir / "result.json", result)
+        append_task(meta)
+        event_capture.finish(outcome=final_status, summary=f"Iterate finished with {final_status} after {rounds_count} rounds")
+        print_json(result)
+        if final_check_passed:
+            return 0
+        if final_status == "blocked":
+            return 3
+        return 1
+    except BaseException as exc:
+        ended_at = now_iso()
+        term_meta = {
+            **base_meta,
+            "status": "cancelled",
+            "ended_at": ended_at,
+            "error": str(exc) or "cancelled",
+        }
+        write_json(run_dir / "metadata.json", term_meta)
+        rc = 130 if isinstance(exc, KeyboardInterrupt) else (exc.code if isinstance(exc, SystemExit) and isinstance(exc.code, int) else 143)
+        write_json(run_dir / "result.json", {
+            "task_id": tid,
+            "status": "cancelled",
+            "returncode": rc,
+            "error": str(exc) or "cancelled",
+        })
+        append_task(term_meta)
+        raise
 
 
 def do_cmd(args):
