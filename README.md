@@ -115,11 +115,13 @@ agentctl iterate coder "Fix billing calculation" --check "pytest" --max-same-fai
 agentctl do "Push commit to production remote" --dry-run --json
 ```
 
+Looking for a hands-free OpenCode / Codex skill with automated milestone streaming and token spend telemetry? Check out [**`ambu-skill`**](https://github.com/zzhang82/ambu-skill).
+
 ---
 
 ## Testing & License
 
-Run all 274 tests:
+Run all 282 tests:
 ```bash
 python3 -m unittest discover -s tests
 ```
