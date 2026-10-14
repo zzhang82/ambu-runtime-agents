@@ -53,13 +53,34 @@ def known_capabilities() -> set[str]:
 
 
 _NEGATION = re.compile(r"\b(?:do\s+not|don't|never|not)\b", re.IGNORECASE)
+# These words start a new directive. An earlier prohibition must not cover it,
+# and a second prohibition must not cancel the first by parity.
+_SCOPE_RESET = re.compile(r"\b(?:but|then|however|and)\b", re.IGNORECASE)
+
+
+def _negation_suppresses(span: str) -> bool:
+    matches = list(_NEGATION.finditer(span))
+    if not matches:
+        return False
+    start = len(matches) - 1
+    while start > 0 and not span[matches[start - 1].end():matches[start].start()].strip():
+        start -= 1
+    stack = matches[start:]
+    # Adjacent wording such as "not not" is ambiguous, so it does not suppress.
+    if len(stack) >= 2 and not span[stack[-1].end():].strip():
+        return len(stack) % 2 == 1
+    return True
 
 
 def _mention_negated(haystack: str, index: int) -> bool:
     prefix = haystack[:index]
     boundary = max(prefix.rfind(mark) for mark in ".!;")
     clause = prefix[boundary + 1:]
-    return len(_NEGATION.findall(clause)) % 2 == 1
+    reset_end = None
+    for match in _SCOPE_RESET.finditer(clause):
+        reset_end = match.end()
+    span = clause[reset_end:] if reset_end is not None else clause
+    return _negation_suppresses(span)
 
 
 def _pattern_requested(haystack: str, pattern: str, *, known: bool) -> bool:

@@ -55,6 +55,17 @@ class PolicyTests(unittest.TestCase):
         self.assertIn("git_push", policy.detect_capabilities("PLEASE PUSH. DO NOT PUSH."))
         self.assertIn("git_push", policy.detect_capabilities("Push the branch! Never push."))
 
+    def test_coordinated_prohibitions_do_not_cancel(self):
+        self.assertEqual(policy.detect_capabilities("Do not push and do not deploy."), [])
+        self.assertEqual(policy.detect_capabilities("Don't push and don't deploy."), [])
+        self.assertEqual(policy.detect_capabilities("Never push, never deploy."), [])
+
+    def test_contrast_after_prohibition_stays_requested(self):
+        self.assertEqual(policy.detect_capabilities("Do not push but deploy the preview."), ["deploy"])
+        self.assertEqual(policy.detect_capabilities("Do not push, but deploy the preview."), ["deploy"])
+        self.assertEqual(policy.detect_capabilities("Do not push, then deploy the preview."), ["deploy"])
+        self.assertEqual(policy.detect_capabilities("Do not push and deploy the preview."), ["deploy"])
+
     def test_custom_pattern_negative_stays_conservative(self):
         self.assertEqual(policy.detect_capabilities("Do not shipit.", patterns={"deploy": ["shipit"]}), ["deploy"])
 
