@@ -86,6 +86,57 @@ class PolicyTests(unittest.TestCase):
     def test_custom_pattern_negative_stays_conservative(self):
         self.assertEqual(policy.detect_capabilities("Do not shipit.", patterns={"deploy": ["shipit"]}), ["deploy"])
 
+    def test_directive_boundary_matrix(self):
+        negative = (
+            "Do not push or deploy.",
+            "Do not push, deploy, or release.",
+            "Do not push and do not deploy.",
+            "Do not push\nor deploy.",
+            "Do not push, merge, or deploy.",
+            "Never git push.",
+            "Never push. Never deploy.",
+            "Don't push and don't deploy.",
+            "Never push, never deploy.",
+            "Do not push,\ndeploy, or release.",
+            "Do not\npush.",
+            "Never\ndeploy.",
+            "Do not ever\npush.",
+            "Do not please push.",
+            "Do not push, deploy.",
+            "Do not push, merge, deploy.",
+            "Do not push\nNow do not deploy.",
+        )
+        for text in negative:
+            with self.subTest(kind="negative", text=text):
+                self.assertEqual(policy.detect_capabilities(text), [])
+
+        gated = (
+            ("Please push. Do not push.", ["git_push"]),
+            ("Do not push; then push anyway.", ["git_push"]),
+            ("Do not push but deploy the preview.", ["deploy"]),
+            ("Do not push\nNow push the branch.", ["git_push"]),
+            ("Do not deploy\nNow deploy the app.", ["deploy"]),
+            ("Do not push\nWe need to deploy the preview.", ["deploy"]),
+            ("Do not deploy\nWe need to deploy the preview.", ["deploy"]),
+            ("Do not push, now deploy the preview.", ["deploy"]),
+            ("Please push and deploy.", ["deploy", "git_push"]),
+            ("Do not push; deploy the preview.", ["deploy"]),
+            ("Do not push\nPlease push anyway.", ["git_push"]),
+            ("Never deploy\nPlease deploy the preview.", ["deploy"]),
+            ("Do not push, please deploy the preview.", ["deploy"]),
+            ("Do not deploy\nPush the branch.", ["git_push"]),
+            ("Do not push\ndeploy the preview.", ["deploy"]),
+            ("Please push but do not\ndeploy.", ["git_push"]),
+            ("Do not push and deploy the preview.", ["deploy"]),
+            ("Not not push.", ["git_push"]),
+            ("Push the branch. Never push.", ["git_push"]),
+            ("Never deploy. Please deploy.", ["deploy"]),
+            ("Do not push, deploy the preview.", ["deploy"]),
+        )
+        for text, expected in gated:
+            with self.subTest(kind="gated", text=text):
+                self.assertEqual(policy.detect_capabilities(text), expected)
+
 
 if __name__ == "__main__":
     unittest.main()

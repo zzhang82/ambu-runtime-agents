@@ -53,11 +53,12 @@ def known_capabilities() -> set[str]:
 
 
 _NEGATION = re.compile(r"\b(?:do\s+not|don't|never|not)\b", re.IGNORECASE)
-# These words start a new directive. An earlier prohibition must not cover it,
-# and a second prohibition must not cancel the first by parity.
-_SCOPE_RESET = re.compile(r"\b(?:but|then|however|and)\b", re.IGNORECASE)
-_PLEASE = re.compile(r"\bplease\b", re.IGNORECASE)
-_LINE_CONTINUATION = re.compile(r"(?:^|\s)(?:or|nor)\s*$", re.IGNORECASE)
+# List coordination only. A lead-in word is not special-cased by name.
+_OR_GAP = re.compile(
+    r"^[\s,]*(?:(?:or|nor)\b[\s,]*|[A-Za-z]+[\s]*,[\s]*)*(?:(?:or|nor)\b[\s,]*)?$",
+    re.IGNORECASE,
+)
+_LIST_TAIL = re.compile(r"\s*(?:$|[.!;?]|[,]|or\b|nor\b)", re.IGNORECASE)
 
 
 def _capability_needles() -> tuple[str, ...]:
@@ -70,82 +71,65 @@ def _capability_needles() -> tuple[str, ...]:
     return tuple(sorted(needles, key=len, reverse=True))
 
 
-def _contains_capability(text: str) -> bool:
+def _last_capability_end(text: str) -> int | None:
     lowered = text.lower()
-    return any(needle in lowered for needle in _capability_needles())
+    last_end = None
+    for needle in _capability_needles():
+        start = 0
+        while True:
+            found = lowered.find(needle, start)
+            if found < 0:
+                break
+            end = found + len(needle)
+            if last_end is None or end > last_end:
+                last_end = end
+            start = found + 1
+    return last_end
 
 
-def _negation_suppresses(span: str) -> bool:
+def _suppressing_negation_end(span: str) -> int | None:
     matches = list(_NEGATION.finditer(span))
     if not matches:
-        return False
+        return None
     start = len(matches) - 1
     while start > 0 and not span[matches[start - 1].end():matches[start].start()].strip():
         start -= 1
     stack = matches[start:]
-    # Adjacent wording such as "not not" is ambiguous, so it does not suppress.
-    if len(stack) >= 2 and not span[stack[-1].end():].strip():
-        return len(stack) % 2 == 1
-    return True
+    # Adjacent wording such as "not not" is ambiguous, so an even stack does not suppress.
+    if len(stack) >= 2 and not span[stack[-1].end():].strip() and len(stack) % 2 == 0:
+        return None
+    return stack[-1].end()
 
 
-def _newline_directive_ends(clause: str) -> list[int]:
-    """Return a reset when the capability being tested starts a new line.
+def _is_coordinated_continuation(gap: str, after_mention: str) -> bool:
+    """A later capability stays prohibited only inside the same coordinated list.
 
-    The clause excludes that capability, so a line-initial mention leaves the
-    clause ending at the newline. List continuations stay in the prohibition.
-    A new line is a new instruction only when the previous line already names a
-    capability after its negation. "do not ever\\npush" stays negative;
-    "do not deploy\\npush the branch" does not.
+    "or"/"nor" and comma-separated bare items continue the prohibition. A new
+    line or other wording does not. A bare comma is a list only when this
+    capability is a bare item or the list continues after it; otherwise the
+    request stays gated.
     """
-    stripped = clause.rstrip(" \t\r")
-    if not stripped.endswith("\n"):
-        return []
-    newline = stripped.rfind("\n")
-    before = stripped[:newline].rstrip(" \t\r")
-    if clause[newline + 1:].strip():
-        return []
-    if before.endswith(",") or _LINE_CONTINUATION.search(before):
-        return []
-    if not _contains_capability(before):
-        return []
-    negations = list(_NEGATION.finditer(before))
-    if negations and not re.search(r"\w", before[negations[-1].end():]):
-        return []
-    return [len(clause)]
+    if "\n" in gap and not re.search(r"(?:,|\bor\b|\bnor\b)", gap, re.IGNORECASE):
+        return False
+    if not _OR_GAP.fullmatch(gap):
+        return False
+    if re.search(r"\b(?:or|nor)\b", gap, re.IGNORECASE):
+        return True
+    return _LIST_TAIL.match(after_mention) is not None
 
 
-def _please_directive_ends(clause: str) -> list[int]:
-    """Return ends of imperative cues that begin a new directive.
-
-    "please" immediately after a negation is still that prohibition, as in
-    "do not please push". After another word, including across a comma, it
-    starts a separate instruction.
-    """
-    ends = []
-    for match in _PLEASE.finditer(clause):
-        negations = list(_NEGATION.finditer(clause[:match.start()]))
-        if negations and not re.search(r"\w", clause[negations[-1].end():match.start()]):
-            continue
-        ends.append(match.end())
-    return ends
-
-
-def _mention_negated(haystack: str, index: int) -> bool:
+def _mention_negated(haystack: str, index: int, mention_end: int) -> bool:
     prefix = haystack[:index]
     boundary = max(prefix.rfind(mark) for mark in ".!;")
     clause = prefix[boundary + 1:]
-    reset_end = 0
-    found = False
-    for match in _SCOPE_RESET.finditer(clause):
-        reset_end = match.end()
-        found = True
-    for end in (*_newline_directive_ends(clause), *_please_directive_ends(clause)):
-        if end >= reset_end:
-            reset_end = end
-            found = True
-    span = clause[reset_end:] if found else clause
-    return _negation_suppresses(span)
+    negation_end = _suppressing_negation_end(clause)
+    if negation_end is None:
+        return False
+    after_negation = clause[negation_end:]
+    previous_end = _last_capability_end(after_negation)
+    if previous_end is None:
+        return True
+    return _is_coordinated_continuation(after_negation[previous_end:], haystack[mention_end:])
 
 
 def _pattern_requested(haystack: str, pattern: str, *, known: bool) -> bool:
@@ -162,7 +146,7 @@ def _pattern_requested(haystack: str, pattern: str, *, known: bool) -> bool:
         start = index + len(needle)
     if not indexes:
         return False
-    negated = [_mention_negated(haystack, index) for index in indexes]
+    negated = [_mention_negated(haystack, index, index + len(needle)) for index in indexes]
     if any(not item for item in negated):
         return True
     return not known
