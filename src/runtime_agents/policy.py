@@ -54,6 +54,7 @@ def known_capabilities() -> set[str]:
 
 _NEGATION = re.compile(r"\b(?:do\s+not|don't|never|not)\b", re.IGNORECASE)
 # List coordination only. A lead-in word is not special-cased by name.
+_CLAUSE_BOUNDARY = re.compile(r"\b(?:but|then|however|and)\b", re.IGNORECASE)
 _OR_GAP = re.compile(
     r"^[\s,]*(?:(?:or|nor)\b[\s,]*|[A-Za-z]+[\s]*,[\s]*)*(?:(?:or|nor)\b[\s,]*)?$",
     re.IGNORECASE,
@@ -126,6 +127,11 @@ def _mention_negated(haystack: str, index: int, mention_end: int) -> bool:
     if negation_end is None:
         return False
     after_negation = clause[negation_end:]
+    # The first recognized capability is not automatically inside the prohibition.
+    # A contrastive or sequential boundary after the negation starts a new directive,
+    # even when the prohibited verb itself is not a known capability.
+    if _CLAUSE_BOUNDARY.search(after_negation):
+        return False
     previous_end = _last_capability_end(after_negation)
     if previous_end is None:
         return True

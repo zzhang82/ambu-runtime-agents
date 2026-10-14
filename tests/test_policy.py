@@ -132,6 +132,9 @@ class PolicyTests(unittest.TestCase):
             ("Push the branch. Never push.", ["git_push"]),
             ("Never deploy. Please deploy.", ["deploy"]),
             ("Do not push, deploy the preview.", ["deploy"]),
+            ("Do not merge but push the branch.", ["git_push"]),
+            ("Do not review the plan but deploy the preview.", ["deploy"]),
+            ("Do not rename files, then deploy.", ["deploy"]),
         )
         for text, expected in gated:
             with self.subTest(kind="gated", text=text):
