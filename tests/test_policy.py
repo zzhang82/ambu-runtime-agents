@@ -66,6 +66,23 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(policy.detect_capabilities("Do not push, then deploy the preview."), ["deploy"])
         self.assertEqual(policy.detect_capabilities("Do not push and deploy the preview."), ["deploy"])
 
+    def test_independent_instruction_boundaries(self):
+        self.assertEqual(policy.detect_capabilities("Do not push\nPlease push anyway."), ["git_push"])
+        self.assertEqual(policy.detect_capabilities("Never deploy\nPlease deploy the preview."), ["deploy"])
+        self.assertEqual(policy.detect_capabilities("Do not push, please deploy the preview."), ["deploy"])
+        self.assertEqual(policy.detect_capabilities("Do not deploy\nPush the branch."), ["git_push"])
+
+    def test_coordinated_lines_stay_negative(self):
+        self.assertEqual(policy.detect_capabilities("Do not push\nor deploy."), [])
+        self.assertEqual(policy.detect_capabilities("Do not push, deploy, or release."), [])
+        self.assertEqual(policy.detect_capabilities("Do not push,\ndeploy, or release."), [])
+        self.assertEqual(policy.detect_capabilities("Do not\npush."), [])
+        self.assertEqual(policy.detect_capabilities("Never\ndeploy."), [])
+        self.assertEqual(policy.detect_capabilities("Do not ever\npush."), [])
+        self.assertEqual(policy.detect_capabilities("Do not please push."), [])
+        self.assertEqual(policy.detect_capabilities("Do not push\ndeploy the preview."), ["deploy"])
+        self.assertEqual(policy.detect_capabilities("Please push but do not\ndeploy."), ["git_push"])
+
     def test_custom_pattern_negative_stays_conservative(self):
         self.assertEqual(policy.detect_capabilities("Do not shipit.", patterns={"deploy": ["shipit"]}), ["deploy"])
 

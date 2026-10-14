@@ -56,6 +56,23 @@ _NEGATION = re.compile(r"\b(?:do\s+not|don't|never|not)\b", re.IGNORECASE)
 # These words start a new directive. An earlier prohibition must not cover it,
 # and a second prohibition must not cancel the first by parity.
 _SCOPE_RESET = re.compile(r"\b(?:but|then|however|and)\b", re.IGNORECASE)
+_PLEASE = re.compile(r"\bplease\b", re.IGNORECASE)
+_LINE_CONTINUATION = re.compile(r"(?:^|\s)(?:or|nor)\s*$", re.IGNORECASE)
+
+
+def _capability_needles() -> tuple[str, ...]:
+    needles = {
+        pattern.lower().strip()
+        for patterns in CAPABILITY_PATTERNS.values()
+        for pattern in patterns
+        if pattern and pattern.strip()
+    }
+    return tuple(sorted(needles, key=len, reverse=True))
+
+
+def _contains_capability(text: str) -> bool:
+    lowered = text.lower()
+    return any(needle in lowered for needle in _capability_needles())
 
 
 def _negation_suppresses(span: str) -> bool:
@@ -72,14 +89,62 @@ def _negation_suppresses(span: str) -> bool:
     return True
 
 
+def _newline_directive_ends(clause: str) -> list[int]:
+    """Return a reset when the capability being tested starts a new line.
+
+    The clause excludes that capability, so a line-initial mention leaves the
+    clause ending at the newline. List continuations stay in the prohibition.
+    A new line is a new instruction only when the previous line already names a
+    capability after its negation. "do not ever\\npush" stays negative;
+    "do not deploy\\npush the branch" does not.
+    """
+    stripped = clause.rstrip(" \t\r")
+    if not stripped.endswith("\n"):
+        return []
+    newline = stripped.rfind("\n")
+    before = stripped[:newline].rstrip(" \t\r")
+    if clause[newline + 1:].strip():
+        return []
+    if before.endswith(",") or _LINE_CONTINUATION.search(before):
+        return []
+    if not _contains_capability(before):
+        return []
+    negations = list(_NEGATION.finditer(before))
+    if negations and not re.search(r"\w", before[negations[-1].end():]):
+        return []
+    return [len(clause)]
+
+
+def _please_directive_ends(clause: str) -> list[int]:
+    """Return ends of imperative cues that begin a new directive.
+
+    "please" immediately after a negation is still that prohibition, as in
+    "do not please push". After another word, including across a comma, it
+    starts a separate instruction.
+    """
+    ends = []
+    for match in _PLEASE.finditer(clause):
+        negations = list(_NEGATION.finditer(clause[:match.start()]))
+        if negations and not re.search(r"\w", clause[negations[-1].end():match.start()]):
+            continue
+        ends.append(match.end())
+    return ends
+
+
 def _mention_negated(haystack: str, index: int) -> bool:
     prefix = haystack[:index]
     boundary = max(prefix.rfind(mark) for mark in ".!;")
     clause = prefix[boundary + 1:]
-    reset_end = None
+    reset_end = 0
+    found = False
     for match in _SCOPE_RESET.finditer(clause):
         reset_end = match.end()
-    span = clause[reset_end:] if reset_end is not None else clause
+        found = True
+    for end in (*_newline_directive_ends(clause), *_please_directive_ends(clause)):
+        if end >= reset_end:
+            reset_end = end
+            found = True
+    span = clause[reset_end:] if found else clause
     return _negation_suppresses(span)
 
 
