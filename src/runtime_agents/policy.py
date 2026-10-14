@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 from runtime_agents.models import PolicyDecision
@@ -51,6 +52,36 @@ def known_capabilities() -> set[str]:
     return set(CAPABILITY_PATTERNS.keys())
 
 
+_NEGATION = re.compile(r"\b(?:do\s+not|don't|never|not)\b", re.IGNORECASE)
+
+
+def _mention_negated(haystack: str, index: int) -> bool:
+    prefix = haystack[:index]
+    boundary = max(prefix.rfind(mark) for mark in ".!;")
+    clause = prefix[boundary + 1:]
+    return len(_NEGATION.findall(clause)) % 2 == 1
+
+
+def _pattern_requested(haystack: str, pattern: str, *, known: bool) -> bool:
+    needle = pattern.lower()
+    if not needle:
+        return False
+    indexes = []
+    start = 0
+    while True:
+        index = haystack.find(needle, start)
+        if index < 0:
+            break
+        indexes.append(index)
+        start = index + len(needle)
+    if not indexes:
+        return False
+    negated = [_mention_negated(haystack, index) for index in indexes]
+    if any(not item for item in negated):
+        return True
+    return not known
+
+
 def detect_capabilities(text: str, allowed: list[str] | None = None, patterns: dict | None = None) -> list[str]:
     haystack = (text or "").lower()
     pattern_map = patterns or CAPABILITY_PATTERNS
@@ -58,7 +89,7 @@ def detect_capabilities(text: str, allowed: list[str] | None = None, patterns: d
     hits = []
     for cap in candidates:
         for p in pattern_map.get(cap, []):
-            if p.lower() in haystack:
+            if _pattern_requested(haystack, p, known=patterns is None):
                 hits.append(cap)
                 break
     return sorted(set(hits))

@@ -33,6 +33,31 @@ class PolicyTests(unittest.TestCase):
         kind = policy.classify_failure("", "All credentials for model claude-sonnet-4-6 are cooling down", 1)
         self.assertEqual(kind, "transient_model_error")
 
+    def test_negative_only_does_not_request_capability(self):
+        self.assertEqual(policy.detect_capabilities("Do not push, merge, or deploy."), [])
+        self.assertEqual(policy.detect_capabilities("Never git push."), [])
+        self.assertEqual(policy.detect_capabilities("DO NOT PUSH."), [])
+        self.assertEqual(policy.detect_capabilities("do not deploy!"), [])
+        self.assertEqual(policy.detect_capabilities("Never push. Never deploy."), [])
+
+    def test_affirmative_and_mixed_requests(self):
+        self.assertEqual(policy.detect_capabilities("Please push and deploy."), ["deploy", "git_push"])
+        self.assertEqual(policy.detect_capabilities("Do not push; deploy the preview."), ["deploy"])
+        self.assertEqual(policy.detect_capabilities("Do not push; then push anyway."), ["git_push"])
+
+    def test_ambiguous_and_contradictory_stay_gated(self):
+        self.assertIn("git_push", policy.detect_capabilities("Not not push."))
+        self.assertIn("git_push", policy.detect_capabilities("Please push. Do not push."))
+        self.assertIn("git_push", policy.detect_capabilities("Push the branch. Never push."))
+        self.assertIn("git_push", policy.detect_capabilities("Do not push. Please push."))
+        self.assertIn("deploy", policy.detect_capabilities("Please deploy. Never deploy."))
+        self.assertIn("deploy", policy.detect_capabilities("Never deploy. Please deploy."))
+        self.assertIn("git_push", policy.detect_capabilities("PLEASE PUSH. DO NOT PUSH."))
+        self.assertIn("git_push", policy.detect_capabilities("Push the branch! Never push."))
+
+    def test_custom_pattern_negative_stays_conservative(self):
+        self.assertEqual(policy.detect_capabilities("Do not shipit.", patterns={"deploy": ["shipit"]}), ["deploy"])
+
 
 if __name__ == "__main__":
     unittest.main()
