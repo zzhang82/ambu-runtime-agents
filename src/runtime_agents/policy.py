@@ -127,13 +127,13 @@ def _mention_negated(haystack: str, index: int, mention_end: int) -> bool:
     if negation_end is None:
         return False
     after_negation = clause[negation_end:]
-    # The first recognized capability is not automatically inside the prohibition.
-    # A contrastive or sequential boundary after the negation starts a new directive,
-    # even when the prohibited verb itself is not a known capability.
-    if _CLAUSE_BOUNDARY.search(after_negation):
-        return False
     previous_end = _last_capability_end(after_negation)
     if previous_end is None:
+        # No earlier known capability proves this mention is the prohibited act.
+        # A new directive boundary, or a comma before the mention, means it is not
+        # the direct object of the negation, so the request stays gated.
+        if _CLAUSE_BOUNDARY.search(after_negation) or "," in after_negation:
+            return False
         return True
     return _is_coordinated_continuation(after_negation[previous_end:], haystack[mention_end:])
 
