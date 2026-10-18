@@ -1,0 +1,20 @@
+
+> build · gpt-6-luna
+
+→ Skill "cole-operator"
+✱ Glob "**/AGENTS.md" 0 matches
+→ Read <user-home>/.config/opencode/skills/human-doc-style/SKILL.md
+⚙ agentMemoryBridge_recall {"namespace":"cole-core","query":"","kind":"memory","limit":5}
+⚙ agentMemoryBridge_recall {"namespace":"project:ambu-p1-demo","query":"","kind":"memory","limit":10}
+✱ Glob "*" in . · 15 matches
+→ Read answer.py
+→ Read contract.json
+
+$ rtk git status --short
+fatal: not a git repository (or any of the parent directories): .git
+
+% Patch 1 file
+
+$ python3 -B -c "import runpy; f=runpy.run_path('answer.py')['double']; actual=[f(n) for n in (0,3,-4)]; assert actual == [0,6,-8], actual; print('double-values PASS')"
+double-values PASS
+

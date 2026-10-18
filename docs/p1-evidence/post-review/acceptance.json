@@ -1,0 +1,103 @@
+{
+  "checks": [
+    {
+      "artifact_fingerprints": {
+        "implementation": "e77335c804a116a2e8a7445a96ea133bd60d7bbe5361606d933bcb5509392962"
+      },
+      "attempt": "post-review-recheck",
+      "command": "python3 -B -c \"import runpy; f=runpy.run_path('answer.py')['double']; actual=[f(n) for n in (0,3,-4)]; assert actual == [0,6,-8], actual; print('double-values PASS')\"",
+      "contract_fingerprint": "3daf4a2008e18e1b49b609d6de4d905d36fc957bfe2db4722147d425c3dbd64b",
+      "contract_version": 1,
+      "criterion_id": "double-values",
+      "definition_fingerprint": "2ee49af9e822626a0819380a9696a58d947d581b0b0f27e087682fb8d41f4ad8",
+      "ended_at": "2026-10-18T04:26:17.617862+00:00",
+      "evidence_ref": "acceptance-evidence/0-check-0.json",
+      "executed": true,
+      "reason": "Check exited zero",
+      "returncode": 0,
+      "started_at": "2026-10-18T04:26:17.566964+00:00",
+      "status": "passed",
+      "task_id": "20261018-001829-iterate-coder-be9c23",
+      "validator": "shell-check",
+      "validator_version": 1
+    }
+  ],
+  "contract_fingerprint": "3daf4a2008e18e1b49b609d6de4d905d36fc957bfe2db4722147d425c3dbd64b",
+  "contract_version": 1,
+  "deliverable_status": "satisfied",
+  "evaluations": [
+    {
+      "attempt": "post-review-recheck",
+      "checks": [
+        {
+          "artifact_fingerprints": {
+            "implementation": "e77335c804a116a2e8a7445a96ea133bd60d7bbe5361606d933bcb5509392962"
+          },
+          "attempt": "post-review-recheck",
+          "command": "python3 -B -c \"import runpy; f=runpy.run_path('answer.py')['double']; actual=[f(n) for n in (0,3,-4)]; assert actual == [0,6,-8], actual; print('double-values PASS')\"",
+          "contract_fingerprint": "3daf4a2008e18e1b49b609d6de4d905d36fc957bfe2db4722147d425c3dbd64b",
+          "contract_version": 1,
+          "criterion_id": "double-values",
+          "definition_fingerprint": "2ee49af9e822626a0819380a9696a58d947d581b0b0f27e087682fb8d41f4ad8",
+          "ended_at": "2026-10-18T04:26:17.617862+00:00",
+          "evidence_ref": "acceptance-evidence/0-check-0.json",
+          "executed": true,
+          "reason": "Check exited zero",
+          "returncode": 0,
+          "started_at": "2026-10-18T04:26:17.566964+00:00",
+          "status": "passed",
+          "task_id": "20261018-001829-iterate-coder-be9c23",
+          "validator": "shell-check",
+          "validator_version": 1
+        }
+      ],
+      "outputs": [
+        {
+          "artifact": "answer.py",
+          "attempt": "post-review-recheck",
+          "contract_fingerprint": "3daf4a2008e18e1b49b609d6de4d905d36fc957bfe2db4722147d425c3dbd64b",
+          "contract_version": 1,
+          "criterion_id": "implementation",
+          "ended_at": "2026-10-18T04:26:17.618822+00:00",
+          "evidence_ref": "acceptance-evidence/0-output-0.bin",
+          "executed": true,
+          "reason": "Declared output rules satisfied",
+          "returncode": null,
+          "sha256": "e77335c804a116a2e8a7445a96ea133bd60d7bbe5361606d933bcb5509392962",
+          "started_at": "2026-10-18T04:26:17.618595+00:00",
+          "status": "satisfied",
+          "task_id": "20261018-001829-iterate-coder-be9c23",
+          "validator": "output-implementation",
+          "validator_version": 1
+        }
+      ],
+      "reason": "All declared criteria satisfied by supervisor evidence",
+      "status": "passed",
+      "timestamp": "2026-10-18T04:26:17.618839+00:00"
+    }
+  ],
+  "outputs": [
+    {
+      "artifact": "answer.py",
+      "attempt": "post-review-recheck",
+      "contract_fingerprint": "3daf4a2008e18e1b49b609d6de4d905d36fc957bfe2db4722147d425c3dbd64b",
+      "contract_version": 1,
+      "criterion_id": "implementation",
+      "ended_at": "2026-10-18T04:26:17.618822+00:00",
+      "evidence_ref": "acceptance-evidence/0-output-0.bin",
+      "executed": true,
+      "reason": "Declared output rules satisfied",
+      "returncode": null,
+      "sha256": "e77335c804a116a2e8a7445a96ea133bd60d7bbe5361606d933bcb5509392962",
+      "started_at": "2026-10-18T04:26:17.618595+00:00",
+      "status": "satisfied",
+      "task_id": "20261018-001829-iterate-coder-be9c23",
+      "validator": "output-implementation",
+      "validator_version": 1
+    }
+  ],
+  "permission_blocks": [],
+  "reason": "All declared criteria satisfied by supervisor evidence",
+  "status": "passed",
+  "task_id": "20261018-001829-iterate-coder-be9c23"
+}

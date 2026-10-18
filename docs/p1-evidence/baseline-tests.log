@@ -1,0 +1,55 @@
+test_P1_T01_zero_exit_missing_deliverable (test_acceptance.AcceptanceCLI.test_P1_T01_zero_exit_missing_deliverable) ... ERROR
+test_P1_T02_real_failing_check (test_acceptance.AcceptanceCLI.test_P1_T02_real_failing_check) ... ERROR
+test_P1_T03_required_denial_despite_reassurance (test_acceptance.AcceptanceCLI.test_P1_T03_required_denial_despite_reassurance) ... ERROR
+test_P1_T04_optional_denial_does_not_reject (test_acceptance.AcceptanceCLI.test_P1_T04_optional_denial_does_not_reject) ... ERROR
+test_P1_T05_correct_file_empty_stdout (test_acceptance.AcceptanceCLI.test_P1_T05_correct_file_empty_stdout) ... ERROR
+
+======================================================================
+ERROR: test_P1_T01_zero_exit_missing_deliverable (test_acceptance.AcceptanceCLI.test_P1_T01_zero_exit_missing_deliverable)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<user-home>/code/ambu-p1-acceptance/tests/test_acceptance.py", line 77, in test_P1_T01_zero_exit_missing_deliverable
+    self.assertEqual(result["deliverable_status"], "missing")
+                     ~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+KeyError: 'deliverable_status'
+
+======================================================================
+ERROR: test_P1_T02_real_failing_check (test_acceptance.AcceptanceCLI.test_P1_T02_real_failing_check)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<user-home>/code/ambu-p1-acceptance/tests/test_acceptance.py", line 85, in test_P1_T02_real_failing_check
+    self.assertEqual(result["deliverable_status"], "satisfied")
+                     ~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+KeyError: 'deliverable_status'
+
+======================================================================
+ERROR: test_P1_T03_required_denial_despite_reassurance (test_acceptance.AcceptanceCLI.test_P1_T03_required_denial_despite_reassurance)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<user-home>/code/ambu-p1-acceptance/tests/test_acceptance.py", line 99, in test_P1_T03_required_denial_despite_reassurance
+    self.assertEqual(result["deliverable_status"], "satisfied")
+                     ~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+KeyError: 'deliverable_status'
+
+======================================================================
+ERROR: test_P1_T04_optional_denial_does_not_reject (test_acceptance.AcceptanceCLI.test_P1_T04_optional_denial_does_not_reject)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<user-home>/code/ambu-p1-acceptance/tests/test_acceptance.py", line 112, in test_P1_T04_optional_denial_does_not_reject
+    self.assertEqual(result["deliverable_status"], "satisfied")
+                     ~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+KeyError: 'deliverable_status'
+
+======================================================================
+ERROR: test_P1_T05_correct_file_empty_stdout (test_acceptance.AcceptanceCLI.test_P1_T05_correct_file_empty_stdout)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<user-home>/code/ambu-p1-acceptance/tests/test_acceptance.py", line 121, in test_P1_T05_correct_file_empty_stdout
+    self.assertEqual(result["deliverable_status"], "satisfied")
+                     ~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+KeyError: 'deliverable_status'
+
+----------------------------------------------------------------------
+Ran 5 tests in 1.143s
+
+FAILED (errors=5)

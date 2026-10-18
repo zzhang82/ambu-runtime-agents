@@ -1,0 +1,22 @@
+{
+  "contract_fingerprint": "3daf4a2008e18e1b49b609d6de4d905d36fc957bfe2db4722147d425c3dbd64b",
+  "contract_version": 1,
+  "required_checks": [
+    {
+      "command": "python3 -B -c \"import runpy; f=runpy.run_path('answer.py')['double']; actual=[f(n) for n in (0,3,-4)]; assert actual == [0,6,-8], actual; print('double-values PASS')\"",
+      "id": "double-values",
+      "timeout": 15
+    }
+  ],
+  "required_outputs": [
+    {
+      "id": "implementation",
+      "nonempty": true,
+      "path": "answer.py",
+      "source": "file"
+    }
+  ],
+  "required_permissions": [],
+  "result_type": "implementation",
+  "validation_rules": {}
+}

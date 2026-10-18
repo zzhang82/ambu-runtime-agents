@@ -1,0 +1,1221 @@
+{
+  "suite": "P1 named regressions",
+  "cases": [
+    {
+      "id": "E01",
+      "expected": "original contract authoritative; missing output fails",
+      "status": "PASS",
+      "assertions": "test_acceptance_invariants.py::test_P1_E01_worker_contract_replacement_ignored",
+      "environment": "Python 3.12.3; isolated synthetic worker",
+      "fixture_worker": "#!/usr/bin/python3\nimport json\nprint(json.dumps({'contract_version':1, 'required_outputs':[], 'acceptance_status':'passed'}))\n",
+      "observed_runs": [
+        {
+          "task_id": "20261018-002620-coder-82dadf",
+          "status": "completed",
+          "returncode": 0,
+          "deliverable_status": "missing",
+          "acceptance_status": "failed",
+          "acceptance_reason": "Required output missing",
+          "acceptance_contract": {
+            "contract_fingerprint": "b33167586abc426a81ce8abe3ee9e7d136d102086dcb6975d08f948dc0a94b16",
+            "contract_version": 1,
+            "required_checks": [],
+            "required_outputs": [
+              {
+                "equals": "42\n",
+                "id": "answer",
+                "path": "answer.txt",
+                "source": "file"
+              }
+            ],
+            "required_permissions": [],
+            "result_type": "implementation",
+            "validation_rules": {}
+          },
+          "checks": [],
+          "outputs": [
+            {
+              "artifact": "answer.txt",
+              "attempt": "0:1",
+              "contract_fingerprint": "b33167586abc426a81ce8abe3ee9e7d136d102086dcb6975d08f948dc0a94b16",
+              "contract_version": 1,
+              "criterion_id": "answer",
+              "ended_at": "2026-10-18T04:26:20.655390+00:00",
+              "evidence_ref": null,
+              "executed": true,
+              "reason": "Required file does not exist",
+              "returncode": null,
+              "started_at": "2026-10-18T04:26:20.655257+00:00",
+              "status": "missing",
+              "task_id": "20261018-002620-coder-82dadf",
+              "validator": "output-implementation",
+              "validator_version": 1
+            }
+          ],
+          "permission_blocks": []
+        }
+      ],
+      "evidence_root": "/tmp/ambu-p1-final-evidence.RC1zik/test_P1_E01_worker_contract_replacement_ignored"
+    },
+    {
+      "id": "E02",
+      "expected": "required check not_run despite worker claim",
+      "status": "PASS",
+      "assertions": "test_acceptance_invariants.py::test_P1_E02_no_check_executed_despite_claim",
+      "environment": "Python 3.12.3; isolated synthetic worker",
+      "fixture_worker": "#!/usr/bin/python3\nfrom pathlib import Path\nPath('answer.txt').write_text('42\\n')\nprint('All tests passed')\n",
+      "observed_runs": [
+        {
+          "task_id": "20261018-002620-coder-701208",
+          "status": "completed",
+          "returncode": 0,
+          "deliverable_status": "satisfied",
+          "acceptance_status": "not_run",
+          "acceptance_reason": "Required verification not executed",
+          "acceptance_contract": {
+            "contract_fingerprint": "5612d2d7780ead07ed94407ddf0afcfc0efd88be86f39fc24c47900d31cc226a",
+            "contract_version": 1,
+            "required_checks": [
+              {
+                "id": "manual-check"
+              }
+            ],
+            "required_outputs": [
+              {
+                "equals": "42\n",
+                "id": "answer",
+                "path": "answer.txt",
+                "source": "file"
+              }
+            ],
+            "required_permissions": [],
+            "result_type": "implementation",
+            "validation_rules": {}
+          },
+          "checks": [
+            {
+              "attempt": "0:1",
+              "command": null,
+              "contract_fingerprint": "5612d2d7780ead07ed94407ddf0afcfc0efd88be86f39fc24c47900d31cc226a",
+              "contract_version": 1,
+              "criterion_id": "manual-check",
+              "definition_fingerprint": "6fd01ec98297a14c52e330c1d47a3587b2e84cb7e34f78f8535383f3917bef3e",
+              "ended_at": "2026-10-18T04:26:20.856531+00:00",
+              "evidence_ref": null,
+              "executed": false,
+              "reason": "Not executed",
+              "returncode": null,
+              "started_at": "2026-10-18T04:26:20.856525+00:00",
+              "status": "not_run",
+              "task_id": "20261018-002620-coder-701208",
+              "validator": "shell-check",
+              "validator_version": 1
+            }
+          ],
+          "outputs": [
+            {
+              "artifact": "answer.txt",
+              "attempt": "0:1",
+              "contract_fingerprint": "5612d2d7780ead07ed94407ddf0afcfc0efd88be86f39fc24c47900d31cc226a",
+              "contract_version": 1,
+              "criterion_id": "answer",
+              "ended_at": "2026-10-18T04:26:20.857421+00:00",
+              "evidence_ref": "acceptance-evidence/0-output-0.bin",
+              "executed": true,
+              "reason": "Declared output rules satisfied",
+              "returncode": null,
+              "sha256": "084c799cd551dd1d8d5c5f9a5d593b2e931f5e36122ee5c793c1d08a19839cc0",
+              "started_at": "2026-10-18T04:26:20.856579+00:00",
+              "status": "satisfied",
+              "task_id": "20261018-002620-coder-701208",
+              "validator": "output-implementation",
+              "validator_version": 1
+            }
+          ],
+          "permission_blocks": []
+        }
+      ],
+      "evidence_root": "/tmp/ambu-p1-final-evidence.RC1zik/test_P1_E02_no_check_executed_despite_claim"
+    },
+    {
+      "id": "E03",
+      "expected": "legacy completed record unchanged; deliverable and acceptance unknown",
+      "status": "PASS",
+      "assertions": "test_acceptance_invariants.py::test_P1_E03_legacy_completed_stays_unknown_without_rewrite",
+      "environment": "Python 3.12.3; isolated synthetic worker",
+      "fixture_worker": null,
+      "observed_runs": [],
+      "evidence_root": "/tmp/ambu-p1-final-evidence.RC1zik/test_P1_E03_legacy_completed_stays_unknown_without_rewrite"
+    },
+    {
+      "id": "E04",
+      "expected": "explicit no_findings review satisfied and passed",
+      "status": "PASS",
+      "assertions": "test_acceptance_invariants.py::test_P1_E04_valid_explicit_no_findings",
+      "environment": "Python 3.12.3; isolated synthetic worker",
+      "fixture_worker": "#!/usr/bin/python3\nprint('{\"verdict\": \"no_findings\", \"findings\": []}')\n",
+      "observed_runs": [
+        {
+          "task_id": "20261018-002621-coder-ac6dc1",
+          "status": "completed",
+          "returncode": 0,
+          "deliverable_status": "satisfied",
+          "acceptance_status": "passed",
+          "acceptance_reason": "All declared criteria satisfied by supervisor evidence",
+          "acceptance_contract": {
+            "contract_fingerprint": "69c8c73b5bc9d37c1fb7468405ccc6dbc2895ac7402d5829af7627f4ae120bf3",
+            "contract_version": 1,
+            "required_checks": [],
+            "required_outputs": [
+              {
+                "id": "result",
+                "source": "stdout"
+              }
+            ],
+            "required_permissions": [],
+            "result_type": "review",
+            "validation_rules": {}
+          },
+          "checks": [],
+          "outputs": [
+            {
+              "attempt": "0:1",
+              "contract_fingerprint": "69c8c73b5bc9d37c1fb7468405ccc6dbc2895ac7402d5829af7627f4ae120bf3",
+              "contract_version": 1,
+              "criterion_id": "result",
+              "ended_at": "2026-10-18T04:26:21.349420+00:00",
+              "evidence_ref": "acceptance-evidence/0-output-0.bin",
+              "executed": true,
+              "reason": "Declared output rules satisfied",
+              "returncode": null,
+              "sha256": "6fa4ecb055f0510d94edff71db030f2dcb868388ce76bf390f57f36154bbc77a",
+              "started_at": "2026-10-18T04:26:21.348595+00:00",
+              "status": "satisfied",
+              "task_id": "20261018-002621-coder-ac6dc1",
+              "validator": "output-review",
+              "validator_version": 1
+            }
+          ],
+          "permission_blocks": []
+        }
+      ],
+      "evidence_root": "/tmp/ambu-p1-final-evidence.RC1zik/test_P1_E04_valid_explicit_no_findings"
+    },
+    {
+      "id": "E05",
+      "expected": "vague review invalid and failed",
+      "status": "PASS",
+      "assertions": "test_acceptance_invariants.py::test_P1_E05_vague_review_is_invalid",
+      "environment": "Python 3.12.3; isolated synthetic worker",
+      "fixture_worker": "#!/usr/bin/python3\nprint('looks good')\n",
+      "observed_runs": [
+        {
+          "task_id": "20261018-002621-coder-db9a18",
+          "status": "completed",
+          "returncode": 0,
+          "deliverable_status": "invalid",
+          "acceptance_status": "failed",
+          "acceptance_reason": "Required output invalid",
+          "acceptance_contract": {
+            "contract_fingerprint": "69c8c73b5bc9d37c1fb7468405ccc6dbc2895ac7402d5829af7627f4ae120bf3",
+            "contract_version": 1,
+            "required_checks": [],
+            "required_outputs": [
+              {
+                "id": "result",
+                "source": "stdout"
+              }
+            ],
+            "required_permissions": [],
+            "result_type": "review",
+            "validation_rules": {}
+          },
+          "checks": [],
+          "outputs": [
+            {
+              "attempt": "0:1",
+              "contract_fingerprint": "69c8c73b5bc9d37c1fb7468405ccc6dbc2895ac7402d5829af7627f4ae120bf3",
+              "contract_version": 1,
+              "criterion_id": "result",
+              "ended_at": "2026-10-18T04:26:21.548046+00:00",
+              "evidence_ref": "acceptance-evidence/0-output-0.bin",
+              "executed": true,
+              "reason": "Expecting value: line 1 column 1 (char 0)",
+              "returncode": null,
+              "sha256": "4c7cedfabdc9c683bd0d04a8d032e57ee74faa5803c466dd995785547029e83c",
+              "started_at": "2026-10-18T04:26:21.547467+00:00",
+              "status": "invalid",
+              "task_id": "20261018-002621-coder-db9a18",
+              "validator": "output-review",
+              "validator_version": 1
+            }
+          ],
+          "permission_blocks": []
+        }
+      ],
+      "evidence_root": "/tmp/ambu-p1-final-evidence.RC1zik/test_P1_E05_vague_review_is_invalid"
+    },
+    {
+      "id": "E06",
+      "expected": "malformed extraction or missing required fields invalid and failed",
+      "status": "PASS",
+      "assertions": "test_acceptance_invariants.py::test_P1_E06_extraction_missing_or_malformed_required_fields",
+      "environment": "Python 3.12.3; isolated synthetic worker",
+      "fixture_worker": "#!/usr/bin/python3\nprint('{broken')\n",
+      "observed_runs": [
+        {
+          "task_id": "20261018-002621-coder-62971a",
+          "status": "completed",
+          "returncode": 0,
+          "deliverable_status": "invalid",
+          "acceptance_status": "failed",
+          "acceptance_reason": "Required output invalid",
+          "acceptance_contract": {
+            "contract_fingerprint": "6d2db3a2744ea56ae72e60c339632c6bd820728e99273452be291bc0b4b2fd66",
+            "contract_version": 1,
+            "required_checks": [],
+            "required_outputs": [
+              {
+                "id": "result",
+                "schema": {
+                  "properties": {
+                    "name": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name"
+                  ],
+                  "type": "object"
+                },
+                "source": "stdout"
+              }
+            ],
+            "required_permissions": [],
+            "result_type": "extraction",
+            "validation_rules": {}
+          },
+          "checks": [],
+          "outputs": [
+            {
+              "attempt": "0:1",
+              "contract_fingerprint": "6d2db3a2744ea56ae72e60c339632c6bd820728e99273452be291bc0b4b2fd66",
+              "contract_version": 1,
+              "criterion_id": "result",
+              "ended_at": "2026-10-18T04:26:21.935412+00:00",
+              "evidence_ref": "acceptance-evidence/0-output-0.bin",
+              "executed": true,
+              "reason": "missing required JSON field",
+              "returncode": null,
+              "sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+              "started_at": "2026-10-18T04:26:21.934774+00:00",
+              "status": "invalid",
+              "task_id": "20261018-002621-coder-62971a",
+              "validator": "output-extraction",
+              "validator_version": 1
+            }
+          ],
+          "permission_blocks": []
+        },
+        {
+          "task_id": "20261018-002622-coder-bec359",
+          "status": "completed",
+          "returncode": 0,
+          "deliverable_status": "invalid",
+          "acceptance_status": "failed",
+          "acceptance_reason": "Required output invalid",
+          "acceptance_contract": {
+            "contract_fingerprint": "6d2db3a2744ea56ae72e60c339632c6bd820728e99273452be291bc0b4b2fd66",
+            "contract_version": 1,
+            "required_checks": [],
+            "required_outputs": [
+              {
+                "id": "result",
+                "schema": {
+                  "properties": {
+                    "name": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name"
+                  ],
+                  "type": "object"
+                },
+                "source": "stdout"
+              }
+            ],
+            "required_permissions": [],
+            "result_type": "extraction",
+            "validation_rules": {}
+          },
+          "checks": [],
+          "outputs": [
+            {
+              "attempt": "0:1",
+              "contract_fingerprint": "6d2db3a2744ea56ae72e60c339632c6bd820728e99273452be291bc0b4b2fd66",
+              "contract_version": 1,
+              "criterion_id": "result",
+              "ended_at": "2026-10-18T04:26:22.135092+00:00",
+              "evidence_ref": "acceptance-evidence/0-output-0.bin",
+              "executed": true,
+              "reason": "Expecting property name enclosed in double quotes: line 1 column 2 (char 1)",
+              "returncode": null,
+              "sha256": "8f9302f65614f26c0ac129b3a69b2617d858989920ca60be65da649dc4b34118",
+              "started_at": "2026-10-18T04:26:22.134420+00:00",
+              "status": "invalid",
+              "task_id": "20261018-002622-coder-bec359",
+              "validator": "output-extraction",
+              "validator_version": 1
+            }
+          ],
+          "permission_blocks": []
+        },
+        {
+          "task_id": "20261018-002621-coder-747fd2",
+          "status": "completed",
+          "returncode": 0,
+          "deliverable_status": "invalid",
+          "acceptance_status": "failed",
+          "acceptance_reason": "Required output invalid",
+          "acceptance_contract": {
+            "contract_fingerprint": "6d2db3a2744ea56ae72e60c339632c6bd820728e99273452be291bc0b4b2fd66",
+            "contract_version": 1,
+            "required_checks": [],
+            "required_outputs": [
+              {
+                "id": "result",
+                "schema": {
+                  "properties": {
+                    "name": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name"
+                  ],
+                  "type": "object"
+                },
+                "source": "stdout"
+              }
+            ],
+            "required_permissions": [],
+            "result_type": "extraction",
+            "validation_rules": {}
+          },
+          "checks": [],
+          "outputs": [
+            {
+              "attempt": "0:1",
+              "contract_fingerprint": "6d2db3a2744ea56ae72e60c339632c6bd820728e99273452be291bc0b4b2fd66",
+              "contract_version": 1,
+              "criterion_id": "result",
+              "ended_at": "2026-10-18T04:26:21.744554+00:00",
+              "evidence_ref": "acceptance-evidence/0-output-0.bin",
+              "executed": true,
+              "reason": "expected string",
+              "returncode": null,
+              "sha256": "cf01b239da6d8e04545849d5423c3983b3056fea30d782ded6e05c1da901f94a",
+              "started_at": "2026-10-18T04:26:21.743839+00:00",
+              "status": "invalid",
+              "task_id": "20261018-002621-coder-747fd2",
+              "validator": "output-extraction",
+              "validator_version": 1
+            }
+          ],
+          "permission_blocks": []
+        }
+      ],
+      "evidence_root": "/tmp/ambu-p1-final-evidence.RC1zik/test_P1_E06_extraction_missing_or_malformed_required_fields"
+    },
+    {
+      "id": "E07",
+      "expected": "research lacking evidence invalid and failed",
+      "status": "PASS",
+      "assertions": "test_acceptance_invariants.py::test_P1_E07_research_requires_supporting_evidence",
+      "environment": "Python 3.12.3; isolated synthetic worker",
+      "fixture_worker": "#!/usr/bin/python3\nprint('{\"answer\": \"The fixture defines the result as 42.\", \"evidence\": [], \"limitations\": []}')\n",
+      "observed_runs": [
+        {
+          "task_id": "20261018-002622-coder-280849",
+          "status": "completed",
+          "returncode": 0,
+          "deliverable_status": "invalid",
+          "acceptance_status": "failed",
+          "acceptance_reason": "Required output invalid",
+          "acceptance_contract": {
+            "contract_fingerprint": "a2385b9427c510abd1b8b0b5ec5e6922b2065c454f0dd9b50ae43d075905c807",
+            "contract_version": 1,
+            "required_checks": [],
+            "required_outputs": [
+              {
+                "id": "result",
+                "source": "stdout"
+              }
+            ],
+            "required_permissions": [],
+            "result_type": "research",
+            "validation_rules": {}
+          },
+          "checks": [],
+          "outputs": [
+            {
+              "attempt": "0:1",
+              "contract_fingerprint": "a2385b9427c510abd1b8b0b5ec5e6922b2065c454f0dd9b50ae43d075905c807",
+              "contract_version": 1,
+              "criterion_id": "result",
+              "ended_at": "2026-10-18T04:26:22.338945+00:00",
+              "evidence_ref": "acceptance-evidence/0-output-0.bin",
+              "executed": true,
+              "reason": "Research evidence missing or invalid",
+              "returncode": null,
+              "sha256": "11f6e8b7a431034cfa19892ca94d3fc430bcee783b00579350f661bfd7d6188f",
+              "started_at": "2026-10-18T04:26:22.338202+00:00",
+              "status": "invalid",
+              "task_id": "20261018-002622-coder-280849",
+              "validator": "output-research",
+              "validator_version": 1
+            }
+          ],
+          "permission_blocks": []
+        }
+      ],
+      "evidence_root": "/tmp/ambu-p1-final-evidence.RC1zik/test_P1_E07_research_requires_supporting_evidence"
+    },
+    {
+      "id": "E08",
+      "expected": "unresolved denial needs_review",
+      "status": "PASS",
+      "assertions": "test_acceptance_invariants.py::test_P1_E08_unresolved_denial_needs_review",
+      "environment": "Python 3.12.3; isolated synthetic worker",
+      "fixture_worker": "#!/usr/bin/python3\nfrom pathlib import Path\nimport sys\nPath('answer.txt').write_text('42\\n')\nprint('permission denied for an unknown operation', file=sys.stderr)\n",
+      "observed_runs": [
+        {
+          "task_id": "20261018-002622-coder-63299a",
+          "status": "completed",
+          "returncode": 0,
+          "deliverable_status": "satisfied",
+          "acceptance_status": "needs_review",
+          "acceptance_reason": "Contract/evidence integrity conflict or unresolved denial",
+          "acceptance_contract": {
+            "contract_fingerprint": "b33167586abc426a81ce8abe3ee9e7d136d102086dcb6975d08f948dc0a94b16",
+            "contract_version": 1,
+            "required_checks": [],
+            "required_outputs": [
+              {
+                "equals": "42\n",
+                "id": "answer",
+                "path": "answer.txt",
+                "source": "file"
+              }
+            ],
+            "required_permissions": [],
+            "result_type": "implementation",
+            "validation_rules": {}
+          },
+          "checks": [],
+          "outputs": [
+            {
+              "artifact": "answer.txt",
+              "attempt": "0:1",
+              "contract_fingerprint": "b33167586abc426a81ce8abe3ee9e7d136d102086dcb6975d08f948dc0a94b16",
+              "contract_version": 1,
+              "criterion_id": "answer",
+              "ended_at": "2026-10-18T04:26:22.536535+00:00",
+              "evidence_ref": "acceptance-evidence/0-output-0.bin",
+              "executed": true,
+              "reason": "Declared output rules satisfied",
+              "returncode": null,
+              "sha256": "084c799cd551dd1d8d5c5f9a5d593b2e931f5e36122ee5c793c1d08a19839cc0",
+              "started_at": "2026-10-18T04:26:22.536275+00:00",
+              "status": "satisfied",
+              "task_id": "20261018-002622-coder-63299a",
+              "validator": "output-implementation",
+              "validator_version": 1
+            }
+          ],
+          "permission_blocks": [
+            {
+              "attempt": "0:1",
+              "contract_fingerprint": "b33167586abc426a81ce8abe3ee9e7d136d102086dcb6975d08f948dc0a94b16",
+              "contract_version": 1,
+              "criterion_id": "permission",
+              "ended_at": "2026-10-18T04:26:22.535427+00:00",
+              "evidence_ref": "acceptance-evidence/denial-0.txt",
+              "executed": true,
+              "line": 1,
+              "necessity": "unresolved",
+              "operation": null,
+              "reason": "Denial necessity unavailable",
+              "returncode": 0,
+              "started_at": "2026-10-18T04:26:22.535422+00:00",
+              "status": "failed",
+              "stream": "stderr",
+              "target": null,
+              "task_id": "20261018-002622-coder-63299a",
+              "validator": "denial-observation",
+              "validator_version": 1
+            }
+          ]
+        }
+      ],
+      "evidence_root": "/tmp/ambu-p1-final-evidence.RC1zik/test_P1_E08_unresolved_denial_needs_review"
+    },
+    {
+      "id": "E09",
+      "expected": "actual failed check overrides optimistic worker claim",
+      "status": "PASS",
+      "assertions": "test_acceptance_invariants.py::test_P1_E09_actual_check_controls_false_claim",
+      "environment": "Python 3.12.3; isolated synthetic worker",
+      "fixture_worker": "#!/usr/bin/python3\nfrom pathlib import Path\nPath('answer.txt').write_text('42\\n')\nprint('All tests passed')\n",
+      "observed_runs": [
+        {
+          "task_id": "20261018-002622-coder-f7c233",
+          "status": "completed",
+          "returncode": 0,
+          "deliverable_status": "satisfied",
+          "acceptance_status": "failed",
+          "acceptance_reason": "Required check failed",
+          "acceptance_contract": {
+            "contract_fingerprint": "71f00cd5029117dc685d065c3dfe6e2515bf04f8707b54074490cb7fd9f9a8be",
+            "contract_version": 1,
+            "required_checks": [
+              {
+                "command": "/usr/bin/python3 -c \"assert False\"",
+                "id": "real"
+              }
+            ],
+            "required_outputs": [
+              {
+                "equals": "42\n",
+                "id": "answer",
+                "path": "answer.txt",
+                "source": "file"
+              }
+            ],
+            "required_permissions": [],
+            "result_type": "implementation",
+            "validation_rules": {}
+          },
+          "checks": [
+            {
+              "artifact_fingerprints": {
+                "answer": "084c799cd551dd1d8d5c5f9a5d593b2e931f5e36122ee5c793c1d08a19839cc0"
+              },
+              "attempt": "0:1",
+              "command": "/usr/bin/python3 -c \"assert False\"",
+              "contract_fingerprint": "71f00cd5029117dc685d065c3dfe6e2515bf04f8707b54074490cb7fd9f9a8be",
+              "contract_version": 1,
+              "criterion_id": "real",
+              "definition_fingerprint": "fad4f2f7462ee8e9652cc0e5fafbc51a3c3ea3ec6882f2fbcce7043661726a08",
+              "ended_at": "2026-10-18T04:26:22.838349+00:00",
+              "evidence_ref": "acceptance-evidence/0-check-0.json",
+              "executed": true,
+              "reason": "Check exited nonzero",
+              "returncode": 1,
+              "started_at": "2026-10-18T04:26:22.737520+00:00",
+              "status": "failed",
+              "task_id": "20261018-002622-coder-f7c233",
+              "validator": "shell-check",
+              "validator_version": 1
+            }
+          ],
+          "outputs": [
+            {
+              "artifact": "answer.txt",
+              "attempt": "0:1",
+              "contract_fingerprint": "71f00cd5029117dc685d065c3dfe6e2515bf04f8707b54074490cb7fd9f9a8be",
+              "contract_version": 1,
+              "criterion_id": "answer",
+              "ended_at": "2026-10-18T04:26:22.839454+00:00",
+              "evidence_ref": "acceptance-evidence/0-output-0.bin",
+              "executed": true,
+              "reason": "Declared output rules satisfied",
+              "returncode": null,
+              "sha256": "084c799cd551dd1d8d5c5f9a5d593b2e931f5e36122ee5c793c1d08a19839cc0",
+              "started_at": "2026-10-18T04:26:22.839257+00:00",
+              "status": "satisfied",
+              "task_id": "20261018-002622-coder-f7c233",
+              "validator": "output-implementation",
+              "validator_version": 1
+            }
+          ],
+          "permission_blocks": []
+        }
+      ],
+      "evidence_root": "/tmp/ambu-p1-final-evidence.RC1zik/test_P1_E09_actual_check_controls_false_claim"
+    },
+    {
+      "id": "E10",
+      "expected": "retry and iterate keep original fingerprint; initial failure then pass",
+      "status": "PASS",
+      "assertions": "test_acceptance_invariants.py::test_P1_E10_retry_and_iterate_keep_original_contract",
+      "environment": "Python 3.12.3; isolated synthetic worker",
+      "fixture_worker": "#!/usr/bin/python3\nfrom pathlib import Path\nPath('answer.txt').write_text('42\\n')\nPath('contract.json').write_text('{}')\nprint('New contract: no checks required')\n",
+      "observed_runs": [
+        {
+          "task_id": "20261018-002622-coder-5d89d4",
+          "status": "completed",
+          "returncode": 0,
+          "deliverable_status": "missing",
+          "acceptance_status": "failed",
+          "acceptance_reason": "Required output missing",
+          "acceptance_contract": {
+            "contract_fingerprint": "b33167586abc426a81ce8abe3ee9e7d136d102086dcb6975d08f948dc0a94b16",
+            "contract_version": 1,
+            "required_checks": [],
+            "required_outputs": [
+              {
+                "equals": "42\n",
+                "id": "answer",
+                "path": "answer.txt",
+                "source": "file"
+              }
+            ],
+            "required_permissions": [],
+            "result_type": "implementation",
+            "validation_rules": {}
+          },
+          "checks": [],
+          "outputs": [
+            {
+              "artifact": "answer.txt",
+              "attempt": "0:1",
+              "contract_fingerprint": "b33167586abc426a81ce8abe3ee9e7d136d102086dcb6975d08f948dc0a94b16",
+              "contract_version": 1,
+              "criterion_id": "answer",
+              "ended_at": "2026-10-18T04:26:23.037929+00:00",
+              "evidence_ref": null,
+              "executed": true,
+              "reason": "Required file does not exist",
+              "returncode": null,
+              "started_at": "2026-10-18T04:26:23.037814+00:00",
+              "status": "missing",
+              "task_id": "20261018-002622-coder-5d89d4",
+              "validator": "output-implementation",
+              "validator_version": 1
+            }
+          ],
+          "permission_blocks": []
+        },
+        {
+          "task_id": "20261018-002623-iterate-coder-9eb2ae",
+          "status": "completed",
+          "returncode": null,
+          "deliverable_status": "satisfied",
+          "acceptance_status": "passed",
+          "acceptance_reason": "All declared criteria satisfied by supervisor evidence",
+          "acceptance_contract": {
+            "contract_fingerprint": "f62c991f073c40cf1c5535360ecc80d64ec4b966916d06dfa9651afd48c18d56",
+            "contract_version": 1,
+            "required_checks": [
+              {
+                "command": "/usr/bin/python3 -c \"from pathlib import Path; assert Path('answer.txt').read_text() == '42\\n'\"",
+                "id": "same-check"
+              }
+            ],
+            "required_outputs": [
+              {
+                "equals": "42\n",
+                "id": "answer",
+                "path": "answer.txt",
+                "source": "file"
+              }
+            ],
+            "required_permissions": [],
+            "result_type": "implementation",
+            "validation_rules": {}
+          },
+          "checks": [
+            {
+              "artifact_fingerprints": {
+                "answer": "084c799cd551dd1d8d5c5f9a5d593b2e931f5e36122ee5c793c1d08a19839cc0"
+              },
+              "attempt": "1",
+              "command": "/usr/bin/python3 -c \"from pathlib import Path; assert Path('answer.txt').read_text() == '42\\n'\"",
+              "contract_fingerprint": "f62c991f073c40cf1c5535360ecc80d64ec4b966916d06dfa9651afd48c18d56",
+              "contract_version": 1,
+              "criterion_id": "same-check",
+              "definition_fingerprint": "9278085332b66c9be60d068bd6ac07a40e92a32ad2e033448f9f0062e8e11f88",
+              "ended_at": "2026-10-18T04:26:23.585599+00:00",
+              "evidence_ref": "acceptance-evidence/1-check-0.json",
+              "executed": true,
+              "reason": "Check exited zero",
+              "returncode": 0,
+              "started_at": "2026-10-18T04:26:23.534965+00:00",
+              "status": "passed",
+              "task_id": "20261018-002623-iterate-coder-9eb2ae",
+              "validator": "shell-check",
+              "validator_version": 1
+            }
+          ],
+          "outputs": [
+            {
+              "artifact": "answer.txt",
+              "attempt": "1",
+              "contract_fingerprint": "f62c991f073c40cf1c5535360ecc80d64ec4b966916d06dfa9651afd48c18d56",
+              "contract_version": 1,
+              "criterion_id": "answer",
+              "ended_at": "2026-10-18T04:26:23.586478+00:00",
+              "evidence_ref": "acceptance-evidence/1-output-0.bin",
+              "executed": true,
+              "reason": "Declared output rules satisfied",
+              "returncode": null,
+              "sha256": "084c799cd551dd1d8d5c5f9a5d593b2e931f5e36122ee5c793c1d08a19839cc0",
+              "started_at": "2026-10-18T04:26:23.586285+00:00",
+              "status": "satisfied",
+              "task_id": "20261018-002623-iterate-coder-9eb2ae",
+              "validator": "output-implementation",
+              "validator_version": 1
+            }
+          ],
+          "permission_blocks": []
+        },
+        {
+          "task_id": "20261018-002623-coder-a427eb",
+          "status": "completed",
+          "returncode": 0,
+          "deliverable_status": "satisfied",
+          "acceptance_status": "passed",
+          "acceptance_reason": "All declared criteria satisfied by supervisor evidence",
+          "acceptance_contract": {
+            "contract_fingerprint": "b33167586abc426a81ce8abe3ee9e7d136d102086dcb6975d08f948dc0a94b16",
+            "contract_version": 1,
+            "required_checks": [],
+            "required_outputs": [
+              {
+                "equals": "42\n",
+                "id": "answer",
+                "path": "answer.txt",
+                "source": "file"
+              }
+            ],
+            "required_permissions": [],
+            "result_type": "implementation",
+            "validation_rules": {}
+          },
+          "checks": [],
+          "outputs": [
+            {
+              "artifact": "answer.txt",
+              "attempt": "0:1",
+              "contract_fingerprint": "b33167586abc426a81ce8abe3ee9e7d136d102086dcb6975d08f948dc0a94b16",
+              "contract_version": 1,
+              "criterion_id": "answer",
+              "ended_at": "2026-10-18T04:26:23.228330+00:00",
+              "evidence_ref": "acceptance-evidence/0-output-0.bin",
+              "executed": true,
+              "reason": "Declared output rules satisfied",
+              "returncode": null,
+              "sha256": "084c799cd551dd1d8d5c5f9a5d593b2e931f5e36122ee5c793c1d08a19839cc0",
+              "started_at": "2026-10-18T04:26:23.227702+00:00",
+              "status": "satisfied",
+              "task_id": "20261018-002623-coder-a427eb",
+              "validator": "output-implementation",
+              "validator_version": 1
+            }
+          ],
+          "permission_blocks": []
+        }
+      ],
+      "evidence_root": "/tmp/ambu-p1-final-evidence.RC1zik/test_P1_E10_retry_and_iterate_keep_original_contract"
+    },
+    {
+      "id": "T01",
+      "expected": "completed / missing / failed; exit zero cannot promote acceptance",
+      "status": "PASS",
+      "assertions": "test_acceptance.py::test_P1_T01_zero_exit_missing_deliverable",
+      "environment": "Python 3.12.3; isolated synthetic worker",
+      "fixture_worker": "#!/usr/bin/python3\nprint('All done, all tests passed.')\n",
+      "observed_runs": [
+        {
+          "task_id": "20261018-002615-coder-742cdb",
+          "status": "completed",
+          "returncode": 0,
+          "deliverable_status": "missing",
+          "acceptance_status": "failed",
+          "acceptance_reason": "Required output missing",
+          "acceptance_contract": {
+            "contract_fingerprint": "b33167586abc426a81ce8abe3ee9e7d136d102086dcb6975d08f948dc0a94b16",
+            "contract_version": 1,
+            "required_checks": [],
+            "required_outputs": [
+              {
+                "equals": "42\n",
+                "id": "answer",
+                "path": "answer.txt",
+                "source": "file"
+              }
+            ],
+            "required_permissions": [],
+            "result_type": "implementation",
+            "validation_rules": {}
+          },
+          "checks": [],
+          "outputs": [
+            {
+              "artifact": "answer.txt",
+              "attempt": "0:1",
+              "contract_fingerprint": "b33167586abc426a81ce8abe3ee9e7d136d102086dcb6975d08f948dc0a94b16",
+              "contract_version": 1,
+              "criterion_id": "answer",
+              "ended_at": "2026-10-18T04:26:15.431491+00:00",
+              "evidence_ref": null,
+              "executed": true,
+              "reason": "Required file does not exist",
+              "returncode": null,
+              "started_at": "2026-10-18T04:26:15.431384+00:00",
+              "status": "missing",
+              "task_id": "20261018-002615-coder-742cdb",
+              "validator": "output-implementation",
+              "validator_version": 1
+            }
+          ],
+          "permission_blocks": []
+        }
+      ],
+      "evidence_root": "/tmp/ambu-p1-final-evidence.RC1zik/test_P1_T01_zero_exit_missing_deliverable"
+    },
+    {
+      "id": "T02",
+      "expected": "completed / satisfied / failed; real check executed and failed",
+      "status": "PASS",
+      "assertions": "test_acceptance.py::test_P1_T02_real_failing_check",
+      "environment": "Python 3.12.3; isolated synthetic worker",
+      "fixture_worker": "#!/usr/bin/python3\nfrom pathlib import Path\nPath('answer.txt').write_text('42\\n')\n",
+      "observed_runs": [
+        {
+          "task_id": "20261018-002615-coder-faf326",
+          "status": "completed",
+          "returncode": 0,
+          "deliverable_status": "satisfied",
+          "acceptance_status": "failed",
+          "acceptance_reason": "Required check failed",
+          "acceptance_contract": {
+            "contract_fingerprint": "a845b0f242a14d3c306a67e502c774d06d0cf7ce187e3c9daa87ef2c4632f918",
+            "contract_version": 1,
+            "required_checks": [
+              {
+                "command": "/usr/bin/python3 -c \"assert 1 == 2\"",
+                "id": "arithmetic"
+              }
+            ],
+            "required_outputs": [
+              {
+                "equals": "42\n",
+                "id": "answer",
+                "path": "answer.txt",
+                "source": "file"
+              }
+            ],
+            "required_permissions": [],
+            "result_type": "implementation",
+            "validation_rules": {}
+          },
+          "checks": [
+            {
+              "artifact_fingerprints": {
+                "answer": "084c799cd551dd1d8d5c5f9a5d593b2e931f5e36122ee5c793c1d08a19839cc0"
+              },
+              "attempt": "0:1",
+              "command": "/usr/bin/python3 -c \"assert 1 == 2\"",
+              "contract_fingerprint": "a845b0f242a14d3c306a67e502c774d06d0cf7ce187e3c9daa87ef2c4632f918",
+              "contract_version": 1,
+              "criterion_id": "arithmetic",
+              "definition_fingerprint": "87ef63b32a756d150c1e096f6f87ec64ffcf2901846bd2006115b04b317b0e38",
+              "ended_at": "2026-10-18T04:26:15.726965+00:00",
+              "evidence_ref": "acceptance-evidence/0-check-0.json",
+              "executed": true,
+              "reason": "Check exited nonzero",
+              "returncode": 1,
+              "started_at": "2026-10-18T04:26:15.626223+00:00",
+              "status": "failed",
+              "task_id": "20261018-002615-coder-faf326",
+              "validator": "shell-check",
+              "validator_version": 1
+            }
+          ],
+          "outputs": [
+            {
+              "artifact": "answer.txt",
+              "attempt": "0:1",
+              "contract_fingerprint": "a845b0f242a14d3c306a67e502c774d06d0cf7ce187e3c9daa87ef2c4632f918",
+              "contract_version": 1,
+              "criterion_id": "answer",
+              "ended_at": "2026-10-18T04:26:15.728105+00:00",
+              "evidence_ref": "acceptance-evidence/0-output-0.bin",
+              "executed": true,
+              "reason": "Declared output rules satisfied",
+              "returncode": null,
+              "sha256": "084c799cd551dd1d8d5c5f9a5d593b2e931f5e36122ee5c793c1d08a19839cc0",
+              "started_at": "2026-10-18T04:26:15.727889+00:00",
+              "status": "satisfied",
+              "task_id": "20261018-002615-coder-faf326",
+              "validator": "output-implementation",
+              "validator_version": 1
+            }
+          ],
+          "permission_blocks": []
+        }
+      ],
+      "evidence_root": "/tmp/ambu-p1-final-evidence.RC1zik/test_P1_T02_real_failing_check"
+    },
+    {
+      "id": "T03",
+      "expected": "completed / satisfied / failed; required denial retained",
+      "status": "PASS",
+      "assertions": "test_acceptance.py::test_P1_T03_required_denial_despite_reassurance",
+      "environment": "Python 3.12.3; isolated synthetic worker",
+      "fixture_worker": "#!/usr/bin/python3\nfrom pathlib import Path\nimport sys\nPath('answer.txt').write_text('42\\n')\nprint('All good, everything passed.')\nprint('permission requested: external_directory (/fixture/input/*); auto-rejecting', file=sys.stderr)\n",
+      "observed_runs": [
+        {
+          "task_id": "20261018-002615-coder-447da7",
+          "status": "completed",
+          "returncode": 0,
+          "deliverable_status": "satisfied",
+          "acceptance_status": "failed",
+          "acceptance_reason": "Required operation denied",
+          "acceptance_contract": {
+            "contract_fingerprint": "79269e923de50ff7548634172f0baf63f71d5e05e761f960c58320f93dab7cba",
+            "contract_version": 1,
+            "required_checks": [],
+            "required_outputs": [
+              {
+                "equals": "42\n",
+                "id": "answer",
+                "path": "answer.txt",
+                "source": "file"
+              }
+            ],
+            "required_permissions": [
+              {
+                "operation": "external_directory",
+                "target": "/fixture/input/*"
+              }
+            ],
+            "result_type": "implementation",
+            "validation_rules": {}
+          },
+          "checks": [],
+          "outputs": [
+            {
+              "artifact": "answer.txt",
+              "attempt": "0:1",
+              "contract_fingerprint": "79269e923de50ff7548634172f0baf63f71d5e05e761f960c58320f93dab7cba",
+              "contract_version": 1,
+              "criterion_id": "answer",
+              "ended_at": "2026-10-18T04:26:15.927717+00:00",
+              "evidence_ref": "acceptance-evidence/0-output-0.bin",
+              "executed": true,
+              "reason": "Declared output rules satisfied",
+              "returncode": null,
+              "sha256": "084c799cd551dd1d8d5c5f9a5d593b2e931f5e36122ee5c793c1d08a19839cc0",
+              "started_at": "2026-10-18T04:26:15.927487+00:00",
+              "status": "satisfied",
+              "task_id": "20261018-002615-coder-447da7",
+              "validator": "output-implementation",
+              "validator_version": 1
+            }
+          ],
+          "permission_blocks": [
+            {
+              "attempt": "0:1",
+              "contract_fingerprint": "79269e923de50ff7548634172f0baf63f71d5e05e761f960c58320f93dab7cba",
+              "contract_version": 1,
+              "criterion_id": "permission",
+              "ended_at": "2026-10-18T04:26:15.926742+00:00",
+              "evidence_ref": "acceptance-evidence/denial-0.txt",
+              "executed": true,
+              "line": 1,
+              "necessity": "required",
+              "operation": "external_directory",
+              "reason": "Observed denial; necessity from exact frozen declaration",
+              "returncode": 0,
+              "started_at": "2026-10-18T04:26:15.926737+00:00",
+              "status": "failed",
+              "stream": "stderr",
+              "target": "/fixture/input/*",
+              "task_id": "20261018-002615-coder-447da7",
+              "validator": "native-denial-parser",
+              "validator_version": 1
+            }
+          ]
+        }
+      ],
+      "evidence_root": "/tmp/ambu-p1-final-evidence.RC1zik/test_P1_T03_required_denial_despite_reassurance"
+    },
+    {
+      "id": "T04",
+      "expected": "completed / satisfied / passed; optional denial retained and required check passed",
+      "status": "PASS",
+      "assertions": "test_acceptance.py::test_P1_T04_optional_denial_does_not_reject",
+      "environment": "Python 3.12.3; isolated synthetic worker",
+      "fixture_worker": "#!/usr/bin/python3\nfrom pathlib import Path\nimport sys\nPath('answer.txt').write_text('42\\n')\nprint('permission requested: external_directory (/fixture/optional/*); auto-rejecting', file=sys.stderr)\nprint('tool failed', file=sys.stderr)\nprint('Error: The user rejected permission to use this specific tool call.', file=sys.stderr)\n",
+      "observed_runs": [
+        {
+          "task_id": "20261018-002616-coder-8fabf3",
+          "status": "completed",
+          "returncode": 0,
+          "deliverable_status": "satisfied",
+          "acceptance_status": "passed",
+          "acceptance_reason": "All declared criteria satisfied by supervisor evidence",
+          "acceptance_contract": {
+            "contract_fingerprint": "b9d05002ad7f0fb5fdcca6c72898cdfdc80b36823c7649823388d86fe515ed0e",
+            "contract_version": 1,
+            "required_checks": [
+              {
+                "command": "/usr/bin/python3 -c \"from pathlib import Path; assert Path('answer.txt').read_text() == '42\\n'\"",
+                "id": "answer-check"
+              }
+            ],
+            "required_outputs": [
+              {
+                "equals": "42\n",
+                "id": "answer",
+                "path": "answer.txt",
+                "source": "file"
+              }
+            ],
+            "required_permissions": [],
+            "result_type": "implementation",
+            "validation_rules": {
+              "optional_permissions": [
+                {
+                  "operation": "external_directory",
+                  "target": "/fixture/optional/*"
+                }
+              ]
+            }
+          },
+          "checks": [
+            {
+              "artifact_fingerprints": {
+                "answer": "084c799cd551dd1d8d5c5f9a5d593b2e931f5e36122ee5c793c1d08a19839cc0"
+              },
+              "attempt": "0:1",
+              "command": "/usr/bin/python3 -c \"from pathlib import Path; assert Path('answer.txt').read_text() == '42\\n'\"",
+              "contract_fingerprint": "b9d05002ad7f0fb5fdcca6c72898cdfdc80b36823c7649823388d86fe515ed0e",
+              "contract_version": 1,
+              "criterion_id": "answer-check",
+              "definition_fingerprint": "92391fd9b943f8d7fff02573d49017c948ff362f8bf97a5629b578fbfcf4d876",
+              "ended_at": "2026-10-18T04:26:16.182316+00:00",
+              "evidence_ref": "acceptance-evidence/0-check-0.json",
+              "executed": true,
+              "reason": "Check exited zero",
+              "returncode": 0,
+              "started_at": "2026-10-18T04:26:16.131600+00:00",
+              "status": "passed",
+              "task_id": "20261018-002616-coder-8fabf3",
+              "validator": "shell-check",
+              "validator_version": 1
+            }
+          ],
+          "outputs": [
+            {
+              "artifact": "answer.txt",
+              "attempt": "0:1",
+              "contract_fingerprint": "b9d05002ad7f0fb5fdcca6c72898cdfdc80b36823c7649823388d86fe515ed0e",
+              "contract_version": 1,
+              "criterion_id": "answer",
+              "ended_at": "2026-10-18T04:26:16.182921+00:00",
+              "evidence_ref": "acceptance-evidence/0-output-0.bin",
+              "executed": true,
+              "reason": "Declared output rules satisfied",
+              "returncode": null,
+              "sha256": "084c799cd551dd1d8d5c5f9a5d593b2e931f5e36122ee5c793c1d08a19839cc0",
+              "started_at": "2026-10-18T04:26:16.182714+00:00",
+              "status": "satisfied",
+              "task_id": "20261018-002616-coder-8fabf3",
+              "validator": "output-implementation",
+              "validator_version": 1
+            }
+          ],
+          "permission_blocks": [
+            {
+              "attempt": "0:1",
+              "contract_fingerprint": "b9d05002ad7f0fb5fdcca6c72898cdfdc80b36823c7649823388d86fe515ed0e",
+              "contract_version": 1,
+              "criterion_id": "permission",
+              "ended_at": "2026-10-18T04:26:16.130687+00:00",
+              "evidence_ref": "acceptance-evidence/denial-0.txt",
+              "executed": true,
+              "line": 1,
+              "necessity": "optional",
+              "operation": "external_directory",
+              "reason": "Observed denial; necessity from exact frozen declaration",
+              "returncode": 0,
+              "started_at": "2026-10-18T04:26:16.130683+00:00",
+              "status": "failed",
+              "stream": "stderr",
+              "target": "/fixture/optional/*",
+              "task_id": "20261018-002616-coder-8fabf3",
+              "validator": "native-denial-parser",
+              "validator_version": 1
+            }
+          ]
+        }
+      ],
+      "evidence_root": "/tmp/ambu-p1-final-evidence.RC1zik/test_P1_T04_optional_denial_does_not_reject"
+    },
+    {
+      "id": "T05",
+      "expected": "completed / satisfied / passed; empty stdout with verified file",
+      "status": "PASS",
+      "assertions": "test_acceptance.py::test_P1_T05_correct_file_empty_stdout",
+      "environment": "Python 3.12.3; isolated synthetic worker",
+      "fixture_worker": "#!/usr/bin/python3\nfrom pathlib import Path\nPath('answer.txt').write_text('42\\n')\n",
+      "observed_runs": [
+        {
+          "task_id": "20261018-002616-coder-881f50",
+          "status": "completed",
+          "returncode": 0,
+          "deliverable_status": "satisfied",
+          "acceptance_status": "passed",
+          "acceptance_reason": "All declared criteria satisfied by supervisor evidence",
+          "acceptance_contract": {
+            "contract_fingerprint": "b33167586abc426a81ce8abe3ee9e7d136d102086dcb6975d08f948dc0a94b16",
+            "contract_version": 1,
+            "required_checks": [],
+            "required_outputs": [
+              {
+                "equals": "42\n",
+                "id": "answer",
+                "path": "answer.txt",
+                "source": "file"
+              }
+            ],
+            "required_permissions": [],
+            "result_type": "implementation",
+            "validation_rules": {}
+          },
+          "checks": [],
+          "outputs": [
+            {
+              "artifact": "answer.txt",
+              "attempt": "0:1",
+              "contract_fingerprint": "b33167586abc426a81ce8abe3ee9e7d136d102086dcb6975d08f948dc0a94b16",
+              "contract_version": 1,
+              "criterion_id": "answer",
+              "ended_at": "2026-10-18T04:26:16.389105+00:00",
+              "evidence_ref": "acceptance-evidence/0-output-0.bin",
+              "executed": true,
+              "reason": "Declared output rules satisfied",
+              "returncode": null,
+              "sha256": "084c799cd551dd1d8d5c5f9a5d593b2e931f5e36122ee5c793c1d08a19839cc0",
+              "started_at": "2026-10-18T04:26:16.388324+00:00",
+              "status": "satisfied",
+              "task_id": "20261018-002616-coder-881f50",
+              "validator": "output-implementation",
+              "validator_version": 1
+            }
+          ],
+          "permission_blocks": []
+        }
+      ],
+      "evidence_root": "/tmp/ambu-p1-final-evidence.RC1zik/test_P1_T05_correct_file_empty_stdout"
+    }
+  ]
+}

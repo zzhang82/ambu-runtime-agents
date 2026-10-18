@@ -1,0 +1,143 @@
+{
+  "checks": [
+    {
+      "attempt": "1",
+      "command": "python3 -B -c \"import runpy; f=runpy.run_path('answer.py')['double']; actual=[f(n) for n in (0,3,-4)]; assert actual == [0,6,-8], actual; print('double-values PASS')\"",
+      "contract_fingerprint": "3daf4a2008e18e1b49b609d6de4d905d36fc957bfe2db4722147d425c3dbd64b",
+      "contract_version": 1,
+      "criterion_id": "double-values",
+      "definition_fingerprint": "2ee49af9e822626a0819380a9696a58d947d581b0b0f27e087682fb8d41f4ad8",
+      "ended_at": "2026-10-18T04:19:10.504958+00:00",
+      "evidence_ref": "acceptance-evidence/1-check-0.json",
+      "executed": true,
+      "reason": "Check exited zero",
+      "returncode": 0,
+      "started_at": "2026-10-18T04:19:10.454236+00:00",
+      "status": "passed",
+      "task_id": "20261018-001829-iterate-coder-be9c23",
+      "validator": "shell-check",
+      "validator_version": 1
+    }
+  ],
+  "contract_fingerprint": "3daf4a2008e18e1b49b609d6de4d905d36fc957bfe2db4722147d425c3dbd64b",
+  "contract_version": 1,
+  "deliverable_status": "satisfied",
+  "evaluations": [
+    {
+      "attempt": "0",
+      "checks": [
+        {
+          "attempt": "0",
+          "command": "python3 -B -c \"import runpy; f=runpy.run_path('answer.py')['double']; actual=[f(n) for n in (0,3,-4)]; assert actual == [0,6,-8], actual; print('double-values PASS')\"",
+          "contract_fingerprint": "3daf4a2008e18e1b49b609d6de4d905d36fc957bfe2db4722147d425c3dbd64b",
+          "contract_version": 1,
+          "criterion_id": "double-values",
+          "definition_fingerprint": "2ee49af9e822626a0819380a9696a58d947d581b0b0f27e087682fb8d41f4ad8",
+          "ended_at": "2026-10-18T04:18:29.589100+00:00",
+          "evidence_ref": "acceptance-evidence/0-check-0.json",
+          "executed": true,
+          "reason": "Check exited nonzero",
+          "returncode": 1,
+          "started_at": "2026-10-18T04:18:29.488146+00:00",
+          "status": "failed",
+          "task_id": "20261018-001829-iterate-coder-be9c23",
+          "validator": "shell-check",
+          "validator_version": 1
+        }
+      ],
+      "outputs": [
+        {
+          "artifact": "answer.py",
+          "attempt": "0",
+          "contract_fingerprint": "3daf4a2008e18e1b49b609d6de4d905d36fc957bfe2db4722147d425c3dbd64b",
+          "contract_version": 1,
+          "criterion_id": "implementation",
+          "ended_at": "2026-10-18T04:18:29.590277+00:00",
+          "evidence_ref": "acceptance-evidence/0-output-0.bin",
+          "executed": true,
+          "reason": "Declared output rules satisfied",
+          "returncode": null,
+          "sha256": "1a586860a1d2f6cb23c25a2301ae134783cf543e9ca0801146f770bc0f60eefd",
+          "started_at": "2026-10-18T04:18:29.590070+00:00",
+          "status": "satisfied",
+          "task_id": "20261018-001829-iterate-coder-be9c23",
+          "validator": "output-implementation",
+          "validator_version": 1
+        }
+      ],
+      "reason": "Required check failed",
+      "status": "failed",
+      "timestamp": "2026-10-18T04:18:29.590285+00:00"
+    },
+    {
+      "attempt": "1",
+      "checks": [
+        {
+          "attempt": "1",
+          "command": "python3 -B -c \"import runpy; f=runpy.run_path('answer.py')['double']; actual=[f(n) for n in (0,3,-4)]; assert actual == [0,6,-8], actual; print('double-values PASS')\"",
+          "contract_fingerprint": "3daf4a2008e18e1b49b609d6de4d905d36fc957bfe2db4722147d425c3dbd64b",
+          "contract_version": 1,
+          "criterion_id": "double-values",
+          "definition_fingerprint": "2ee49af9e822626a0819380a9696a58d947d581b0b0f27e087682fb8d41f4ad8",
+          "ended_at": "2026-10-18T04:19:10.504958+00:00",
+          "evidence_ref": "acceptance-evidence/1-check-0.json",
+          "executed": true,
+          "reason": "Check exited zero",
+          "returncode": 0,
+          "started_at": "2026-10-18T04:19:10.454236+00:00",
+          "status": "passed",
+          "task_id": "20261018-001829-iterate-coder-be9c23",
+          "validator": "shell-check",
+          "validator_version": 1
+        }
+      ],
+      "outputs": [
+        {
+          "artifact": "answer.py",
+          "attempt": "1",
+          "contract_fingerprint": "3daf4a2008e18e1b49b609d6de4d905d36fc957bfe2db4722147d425c3dbd64b",
+          "contract_version": 1,
+          "criterion_id": "implementation",
+          "ended_at": "2026-10-18T04:19:10.505904+00:00",
+          "evidence_ref": "acceptance-evidence/1-output-0.bin",
+          "executed": true,
+          "reason": "Declared output rules satisfied",
+          "returncode": null,
+          "sha256": "e77335c804a116a2e8a7445a96ea133bd60d7bbe5361606d933bcb5509392962",
+          "started_at": "2026-10-18T04:19:10.505687+00:00",
+          "status": "satisfied",
+          "task_id": "20261018-001829-iterate-coder-be9c23",
+          "validator": "output-implementation",
+          "validator_version": 1
+        }
+      ],
+      "reason": "All declared criteria satisfied by supervisor evidence",
+      "status": "passed",
+      "timestamp": "2026-10-18T04:19:10.505917+00:00"
+    }
+  ],
+  "outputs": [
+    {
+      "artifact": "answer.py",
+      "attempt": "1",
+      "contract_fingerprint": "3daf4a2008e18e1b49b609d6de4d905d36fc957bfe2db4722147d425c3dbd64b",
+      "contract_version": 1,
+      "criterion_id": "implementation",
+      "ended_at": "2026-10-18T04:19:10.505904+00:00",
+      "evidence_ref": "acceptance-evidence/1-output-0.bin",
+      "executed": true,
+      "reason": "Declared output rules satisfied",
+      "returncode": null,
+      "sha256": "e77335c804a116a2e8a7445a96ea133bd60d7bbe5361606d933bcb5509392962",
+      "started_at": "2026-10-18T04:19:10.505687+00:00",
+      "status": "satisfied",
+      "task_id": "20261018-001829-iterate-coder-be9c23",
+      "validator": "output-implementation",
+      "validator_version": 1
+    }
+  ],
+  "permission_blocks": [],
+  "reason": "All declared criteria satisfied by supervisor evidence",
+  "status": "passed",
+  "task_id": "20261018-001829-iterate-coder-be9c23"
+}
