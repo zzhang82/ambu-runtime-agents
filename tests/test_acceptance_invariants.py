@@ -18,6 +18,9 @@ def structured_contract(kind, source="stdout"):
     if kind == 'extraction':
         output['schema'] = {'type': 'object', 'required': ['name'],
                             'properties': {'name': {'type': 'string', 'minLength': 1}}}
+    if kind == 'research':
+        output['schema'] = {'type': 'object', 'properties': {
+            'answer': {'type': 'string', 'enum': [VALID['research']['answer']]}}}
     contract['required_outputs'] = [output]
     return contract
 
@@ -181,6 +184,14 @@ class AcceptanceInvariants(unittest.TestCase):
                 self.assertEqual(fields['deliverable_status'], 'unknown')
                 self.assertEqual(fields['acceptance_status'], 'unknown')
                 self.assertEqual(fields['acceptance']['outputs'][0]['status'], 'unknown')
+
+    def test_research_without_deterministic_answer_rule_needs_review(self):
+        contract = structured_contract('research')
+        del contract['required_outputs'][0]['schema']
+        result = self.run_case(contract, f'print({json.dumps(VALID["research"])!r})\n')
+        self.assertEqual(result['deliverable_status'], 'satisfied')
+        self.assertEqual(result['acceptance_status'], 'needs_review')
+        self.assert_evidence(result)
 
 
 if __name__ == '__main__':

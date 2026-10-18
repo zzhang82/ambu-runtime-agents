@@ -29,14 +29,20 @@ extraction and research require a JSON output. Their minimal schemas:
 - Extraction: an explicit output `schema`, including declared required fields.
 - Research: nonempty `answer`, nonempty `evidence` array of nonempty references,
   and explicit `limitations` array. This verifies representation, not claim truth.
+  Automatic acceptance additionally requires a deterministic expected-answer rule:
+  output `equals`, root schema `enum`, or `schema.properties.answer.enum`. Otherwise
+  a structurally valid answer is `needs_review`, since substance cannot be judged
+  from nonempty text or citations. This is conservative deterministic P1 validation,
+  not an AI grader or an attestation of reference truth.
 
 The supported JSON schema subset is `type`, `properties`, `required`, `items`,
 `enum`, `minLength`, `minItems`, `additionalProperties` (boolean). Unsupported
 keywords are rejected, not silently ignored. Semantic requirements can use
 `validation_rules.manual_review: true` to force `needs_review`.
 
-Checks: unique `id`, optional `command`, optional positive `timeout` (default
-300 seconds), optional `inputs` mapping workspace-relative paths to SHA-256
+Checks: unique `id`, optional `command`, optional nonnegative `timeout` (default
+300 seconds; zero retains the existing runner's timeout behavior), optional `inputs`
+mapping workspace-relative paths to SHA-256
 digests. A check with no command is explicitly `not_run`. Checks execute through
 the existing supervisor shell-check runner, after the existing approval gates.
 Declared check input digests detect changed verifier scripts; arbitrary shell

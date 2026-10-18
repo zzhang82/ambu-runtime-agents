@@ -14,11 +14,13 @@ test_explicit_manual_review_never_invents_semantic_verification (test_acceptance
 test_frozen_object_cannot_be_mutated_and_payload_is_detached (test_acceptance_integrity.AcceptanceIntegrity.test_frozen_object_cannot_be_mutated_and_payload_is_detached) ... ok
 test_iterate_does_not_execute_changed_verifier (test_acceptance_integrity.AcceptanceIntegrity.test_iterate_does_not_execute_changed_verifier) ... ok
 test_iterate_failed_worker_does_not_reuse_earlier_check (test_acceptance_integrity.AcceptanceIntegrity.test_iterate_failed_worker_does_not_reuse_earlier_check) ... ok
+test_iterate_honors_frozen_check_timeout (test_acceptance_integrity.AcceptanceIntegrity.test_iterate_honors_frozen_check_timeout) ... ok
 test_later_check_mutation_invalidates_earlier_pass_evidence (test_acceptance_integrity.AcceptanceIntegrity.test_later_check_mutation_invalidates_earlier_pass_evidence) ... ok
 test_malformed_contracts_never_dispatch (test_acceptance_integrity.AcceptanceIntegrity.test_malformed_contracts_never_dispatch) ... ok
 test_missing_and_failed_evidence_precede_unresolved_denial (test_acceptance_integrity.AcceptanceIntegrity.test_missing_and_failed_evidence_precede_unresolved_denial) ... ok
 test_persisted_contract_tampering_is_review_not_acceptance (test_acceptance_integrity.AcceptanceIntegrity.test_persisted_contract_tampering_is_review_not_acceptance) ... ok
 test_process_failed_can_have_independently_passed_acceptance (test_acceptance_integrity.AcceptanceIntegrity.test_process_failed_can_have_independently_passed_acceptance) ... ok
+test_synthesized_contract_preserves_legacy_artifact_normalization (test_acceptance_integrity.AcceptanceIntegrity.test_synthesized_contract_preserves_legacy_artifact_normalization) ... ok
 test_P1_E01_worker_contract_replacement_ignored (test_acceptance_invariants.AcceptanceInvariants.test_P1_E01_worker_contract_replacement_ignored) ... ok
 test_P1_E02_no_check_executed_despite_claim (test_acceptance_invariants.AcceptanceInvariants.test_P1_E02_no_check_executed_despite_claim) ... ok
 test_P1_E03_legacy_completed_stays_unknown_without_rewrite (test_acceptance_invariants.AcceptanceInvariants.test_P1_E03_legacy_completed_stays_unknown_without_rewrite) ... ok
@@ -29,10 +31,11 @@ test_P1_E07_research_requires_supporting_evidence (test_acceptance_invariants.Ac
 test_P1_E08_unresolved_denial_needs_review (test_acceptance_invariants.AcceptanceInvariants.test_P1_E08_unresolved_denial_needs_review) ... ok
 test_P1_E09_actual_check_controls_false_claim (test_acceptance_invariants.AcceptanceInvariants.test_P1_E09_actual_check_controls_false_claim) ... ok
 test_P1_E10_retry_and_iterate_keep_original_contract (test_acceptance_invariants.AcceptanceInvariants.test_P1_E10_retry_and_iterate_keep_original_contract) ... ok
+test_research_without_deterministic_answer_rule_needs_review (test_acceptance_invariants.AcceptanceInvariants.test_research_without_deterministic_answer_rule_needs_review) ... ok
 test_structured_validator_missing_and_unavailable_controls (test_acceptance_invariants.AcceptanceInvariants.test_structured_validator_missing_and_unavailable_controls) ... ok
 test_structured_validator_positive_controls (test_acceptance_invariants.AcceptanceInvariants.test_structured_validator_positive_controls) ... ok
 
 ----------------------------------------------------------------------
-Ran 33 tests in 9.554s
+Ran 36 tests in 8.568s
 
 OK

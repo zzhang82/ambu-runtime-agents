@@ -1,5 +1,6 @@
 """P1 boundary controls beyond the named T/E matrix."""
 import json
+from argparse import Namespace
 from pathlib import Path
 import sys
 import unittest
@@ -39,6 +40,11 @@ print(json.dumps({'acceptance_contract': {'required_outputs': []}, 'acceptance_s
         self.assertTrue(frozen.payload()['required_outputs'])
         with self.assertRaises(AttributeError):
             frozen.document = '{}'
+
+    def test_synthesized_contract_preserves_legacy_artifact_normalization(self):
+        args = Namespace(check=None, eval_artifact=[' answer.txt ', str(self.root / 'inside.txt'), ' '])
+        frozen = acceptance.from_args(args, self.root, iterate=True)
+        self.assertEqual([o['path'] for o in frozen.payload()['required_outputs']], ['answer.txt', 'inside.txt'])
 
     def test_persisted_contract_tampering_is_review_not_acceptance(self):
         result = self.run_case(contract_for(), """from pathlib import Path
@@ -189,6 +195,23 @@ Path('answer.txt').write_text('42\\n')
         result = self.run_case(contract, "from pathlib import Path\nPath('answer.txt').write_text('42\\n')\n")
         self.assertEqual(result['deliverable_status'], 'satisfied')
         self.assertEqual(result['acceptance_status'], 'needs_review')
+
+    def test_iterate_honors_frozen_check_timeout(self):
+        check = f'{sys.executable} -c "import time; time.sleep(2)"'
+        contract = contract_for(checks=[{'id':'bounded', 'command':check, 'timeout':1}])
+        self.contract_path.write_text(json.dumps(contract))
+        (self.root / 'answer.txt').write_text('42\n')
+        self.worker('pass\n')
+        proc = self.invoke(['iterate', 'coder', 'produce answer', '--check', check,
+                            '--check-timeout', '15', '--max-rounds', '0',
+                            '--acceptance-contract', str(self.contract_path), '--json'])
+        self.assertEqual(proc.returncode, 1, proc.stderr)
+        result = json.loads(proc.stdout)
+        self.assertEqual(result['status'], 'failed')
+        self.assertEqual(result['deliverable_status'], 'satisfied')
+        self.assertEqual(result['acceptance_status'], 'failed')
+        self.assertEqual(result['acceptance']['checks'][0]['returncode'], 124)
+        self.assertTrue(result['acceptance']['checks'][0]['executed'])
 
 
 if __name__ == '__main__':

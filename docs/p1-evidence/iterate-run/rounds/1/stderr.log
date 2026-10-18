@@ -17,4 +17,3 @@ fatal: not a git repository (or any of the parent directories): .git
 
 $ python3 -B -c "import runpy; f=runpy.run_path('answer.py')['double']; actual=[f(n) for n in (0,3,-4)]; assert actual == [0,6,-8], actual; print('double-values PASS')"
 double-values PASS
-

@@ -153,8 +153,8 @@ def freeze(data, cwd):
         ids.add(check["id"])
         if "command" in check:
             require(isinstance(check["command"], str) and bool(check["command"].strip()), "invalid command")
-        require(type(check.get("timeout", 300)) is int and check.get("timeout", 300) > 0,
-                "check timeout must be positive seconds")
+        require(type(check.get("timeout", 300)) is int and check.get("timeout", 300) >= 0,
+                "check timeout must be nonnegative seconds")
         require(isinstance(check.get("inputs", {}), dict), "check inputs must be path/hash mapping")
         for path, sha in check.get("inputs", {}).items():
             local_path(cwd, path)
@@ -181,10 +181,14 @@ def from_args(args, cwd, *, iterate=False):
     if path:
         return freeze(json.loads(Path(path).read_text(encoding="utf-8")), cwd)
     if iterate:
+        timeout = getattr(args, "check_timeout", None)
         checks = ([{"id": "iterate-check", "command": args.check,
-                    "timeout": getattr(args, "check_timeout", None) or 300}] if args.check else [])
+                    "timeout": 300 if timeout is None else timeout}] if args.check else [])
+        paths = [p.strip() for p in (getattr(args, "eval_artifact", []) or []) if p and p.strip()]
+        paths = [str(Path(p).relative_to(cwd.resolve()))
+                 if Path(p).is_absolute() and Path(p).is_relative_to(cwd.resolve()) else p for p in paths]
         outputs = [{"id": f"artifact-{i}", "source": "file", "path": p, "nonempty": True}
-                   for i, p in enumerate(getattr(args, "eval_artifact", []) or [])]
+                   for i, p in enumerate(paths)]
         return freeze({"contract_version": 1, "result_type": "implementation",
                        "required_outputs": outputs, "required_checks": checks,
                        "required_permissions": [], "validation_rules": {}}, cwd)
@@ -405,6 +409,14 @@ class Acceptance:
             return str(exc)
         return None
 
+    def check_timeout(self, command, fallback):
+        limits = [c.get("timeout", 300) for c in self.contract.payload()["required_checks"]
+                  if c.get("command") == command] if self.contract else []
+        if not limits:
+            return fallback
+        positive = [limit for limit in limits if limit > 0]
+        return min(positive) if positive else 0
+
     def evaluate(self, attempt, *, stdout=None, execute=True, observed=None):
         if not self.contract:
             return self.fields()
@@ -422,6 +434,11 @@ class Acceptance:
         changed_after_check = any(
             any(final_hashes.get(key) != sha for key, sha in c.get("artifact_fingerprints", {}).items())
             for c in checks if c["status"] == "passed")
+        research_judgment_unavailable = contract["result_type"] == "research" and any(
+            "equals" not in output
+            and "enum" not in output.get("schema", {})
+            and "enum" not in output.get("schema", {}).get("properties", {}).get("answer", {})
+            for output in contract["required_outputs"])
         states = {o["status"] for o in outputs}
         deliverable = next((s for s in ("invalid", "missing", "unknown") if s in states), "satisfied")
         status, reason = "passed", "All declared criteria satisfied by supervisor evidence"
@@ -439,6 +456,8 @@ class Acceptance:
             status, reason = "unknown", "Required evidence unavailable"
         elif contract["validation_rules"].get("manual_review"):
             status, reason = "needs_review", "Contract requires semantic review"
+        elif research_judgment_unavailable:
+            status, reason = "needs_review", "Research structure verified; substantive answer requires judgment"
         evaluation = {"attempt": attempt, "outputs": outputs, "checks": checks,
                       "status": status, "reason": reason, "timestamp": now()}
         self.history.append(evaluation)

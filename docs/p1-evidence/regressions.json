@@ -10,7 +10,7 @@
       "fixture_worker": "#!/usr/bin/python3\nimport json\nprint(json.dumps({'contract_version':1, 'required_outputs':[], 'acceptance_status':'passed'}))\n",
       "observed_runs": [
         {
-          "task_id": "20261018-002620-coder-82dadf",
+          "task_id": "20261018-003159-coder-ac6a25",
           "status": "completed",
           "returncode": 0,
           "deliverable_status": "missing",
@@ -40,14 +40,14 @@
               "contract_fingerprint": "b33167586abc426a81ce8abe3ee9e7d136d102086dcb6975d08f948dc0a94b16",
               "contract_version": 1,
               "criterion_id": "answer",
-              "ended_at": "2026-10-18T04:26:20.655390+00:00",
+              "ended_at": "2026-10-18T04:31:59.761180+00:00",
               "evidence_ref": null,
               "executed": true,
               "reason": "Required file does not exist",
               "returncode": null,
-              "started_at": "2026-10-18T04:26:20.655257+00:00",
+              "started_at": "2026-10-18T04:31:59.761049+00:00",
               "status": "missing",
-              "task_id": "20261018-002620-coder-82dadf",
+              "task_id": "20261018-003159-coder-ac6a25",
               "validator": "output-implementation",
               "validator_version": 1
             }
@@ -55,7 +55,7 @@
           "permission_blocks": []
         }
       ],
-      "evidence_root": "/tmp/ambu-p1-final-evidence.RC1zik/test_P1_E01_worker_contract_replacement_ignored"
+      "evidence_root": "/tmp/ambu-p1-semantic-evidence.0KBp9Z/test_P1_E01_worker_contract_replacement_ignored"
     },
     {
       "id": "E02",
@@ -66,7 +66,7 @@
       "fixture_worker": "#!/usr/bin/python3\nfrom pathlib import Path\nPath('answer.txt').write_text('42\\n')\nprint('All tests passed')\n",
       "observed_runs": [
         {
-          "task_id": "20261018-002620-coder-701208",
+          "task_id": "20261018-003159-coder-f3afc5",
           "status": "completed",
           "returncode": 0,
           "deliverable_status": "satisfied",
@@ -100,14 +100,14 @@
               "contract_version": 1,
               "criterion_id": "manual-check",
               "definition_fingerprint": "6fd01ec98297a14c52e330c1d47a3587b2e84cb7e34f78f8535383f3917bef3e",
-              "ended_at": "2026-10-18T04:26:20.856531+00:00",
+              "ended_at": "2026-10-18T04:31:59.912746+00:00",
               "evidence_ref": null,
               "executed": false,
               "reason": "Not executed",
               "returncode": null,
-              "started_at": "2026-10-18T04:26:20.856525+00:00",
+              "started_at": "2026-10-18T04:31:59.912740+00:00",
               "status": "not_run",
-              "task_id": "20261018-002620-coder-701208",
+              "task_id": "20261018-003159-coder-f3afc5",
               "validator": "shell-check",
               "validator_version": 1
             }
@@ -119,15 +119,15 @@
               "contract_fingerprint": "5612d2d7780ead07ed94407ddf0afcfc0efd88be86f39fc24c47900d31cc226a",
               "contract_version": 1,
               "criterion_id": "answer",
-              "ended_at": "2026-10-18T04:26:20.857421+00:00",
+              "ended_at": "2026-10-18T04:31:59.913440+00:00",
               "evidence_ref": "acceptance-evidence/0-output-0.bin",
               "executed": true,
               "reason": "Declared output rules satisfied",
               "returncode": null,
               "sha256": "084c799cd551dd1d8d5c5f9a5d593b2e931f5e36122ee5c793c1d08a19839cc0",
-              "started_at": "2026-10-18T04:26:20.856579+00:00",
+              "started_at": "2026-10-18T04:31:59.912787+00:00",
               "status": "satisfied",
-              "task_id": "20261018-002620-coder-701208",
+              "task_id": "20261018-003159-coder-f3afc5",
               "validator": "output-implementation",
               "validator_version": 1
             }
@@ -135,7 +135,7 @@
           "permission_blocks": []
         }
       ],
-      "evidence_root": "/tmp/ambu-p1-final-evidence.RC1zik/test_P1_E02_no_check_executed_despite_claim"
+      "evidence_root": "/tmp/ambu-p1-semantic-evidence.0KBp9Z/test_P1_E02_no_check_executed_despite_claim"
     },
     {
       "id": "E03",
@@ -145,7 +145,18 @@
       "environment": "Python 3.12.3; isolated synthetic worker",
       "fixture_worker": null,
       "observed_runs": [],
-      "evidence_root": "/tmp/ambu-p1-final-evidence.RC1zik/test_P1_E03_legacy_completed_stays_unknown_without_rewrite"
+      "evidence_root": "/tmp/ambu-p1-semantic-evidence.0KBp9Z/test_P1_E03_legacy_completed_stays_unknown_without_rewrite",
+      "observed_legacy": {
+        "acceptance_reason": "No supervisor acceptance contract",
+        "acceptance_status": "unknown",
+        "agent": "coder",
+        "contract_fingerprint": null,
+        "deliverable_status": "unknown",
+        "run_dir": "<fixture>/state/runs/legacy",
+        "status": "completed",
+        "task_id": "legacy",
+        "worker_claim": "all tests passed"
+      }
     },
     {
       "id": "E04",
@@ -156,7 +167,7 @@
       "fixture_worker": "#!/usr/bin/python3\nprint('{\"verdict\": \"no_findings\", \"findings\": []}')\n",
       "observed_runs": [
         {
-          "task_id": "20261018-002621-coder-ac6dc1",
+          "task_id": "20261018-003200-coder-d9b556",
           "status": "completed",
           "returncode": 0,
           "deliverable_status": "satisfied",
@@ -183,15 +194,15 @@
               "contract_fingerprint": "69c8c73b5bc9d37c1fb7468405ccc6dbc2895ac7402d5829af7627f4ae120bf3",
               "contract_version": 1,
               "criterion_id": "result",
-              "ended_at": "2026-10-18T04:26:21.349420+00:00",
+              "ended_at": "2026-10-18T04:32:00.249132+00:00",
               "evidence_ref": "acceptance-evidence/0-output-0.bin",
               "executed": true,
               "reason": "Declared output rules satisfied",
               "returncode": null,
               "sha256": "6fa4ecb055f0510d94edff71db030f2dcb868388ce76bf390f57f36154bbc77a",
-              "started_at": "2026-10-18T04:26:21.348595+00:00",
+              "started_at": "2026-10-18T04:32:00.248568+00:00",
               "status": "satisfied",
-              "task_id": "20261018-002621-coder-ac6dc1",
+              "task_id": "20261018-003200-coder-d9b556",
               "validator": "output-review",
               "validator_version": 1
             }
@@ -199,7 +210,7 @@
           "permission_blocks": []
         }
       ],
-      "evidence_root": "/tmp/ambu-p1-final-evidence.RC1zik/test_P1_E04_valid_explicit_no_findings"
+      "evidence_root": "/tmp/ambu-p1-semantic-evidence.0KBp9Z/test_P1_E04_valid_explicit_no_findings"
     },
     {
       "id": "E05",
@@ -210,7 +221,7 @@
       "fixture_worker": "#!/usr/bin/python3\nprint('looks good')\n",
       "observed_runs": [
         {
-          "task_id": "20261018-002621-coder-db9a18",
+          "task_id": "20261018-003200-coder-4e6a2f",
           "status": "completed",
           "returncode": 0,
           "deliverable_status": "invalid",
@@ -237,15 +248,15 @@
               "contract_fingerprint": "69c8c73b5bc9d37c1fb7468405ccc6dbc2895ac7402d5829af7627f4ae120bf3",
               "contract_version": 1,
               "criterion_id": "result",
-              "ended_at": "2026-10-18T04:26:21.548046+00:00",
+              "ended_at": "2026-10-18T04:32:00.403970+00:00",
               "evidence_ref": "acceptance-evidence/0-output-0.bin",
               "executed": true,
               "reason": "Expecting value: line 1 column 1 (char 0)",
               "returncode": null,
               "sha256": "4c7cedfabdc9c683bd0d04a8d032e57ee74faa5803c466dd995785547029e83c",
-              "started_at": "2026-10-18T04:26:21.547467+00:00",
+              "started_at": "2026-10-18T04:32:00.403385+00:00",
               "status": "invalid",
-              "task_id": "20261018-002621-coder-db9a18",
+              "task_id": "20261018-003200-coder-4e6a2f",
               "validator": "output-review",
               "validator_version": 1
             }
@@ -253,7 +264,7 @@
           "permission_blocks": []
         }
       ],
-      "evidence_root": "/tmp/ambu-p1-final-evidence.RC1zik/test_P1_E05_vague_review_is_invalid"
+      "evidence_root": "/tmp/ambu-p1-semantic-evidence.0KBp9Z/test_P1_E05_vague_review_is_invalid"
     },
     {
       "id": "E06",
@@ -264,7 +275,7 @@
       "fixture_worker": "#!/usr/bin/python3\nprint('{broken')\n",
       "observed_runs": [
         {
-          "task_id": "20261018-002621-coder-62971a",
+          "task_id": "20261018-003200-coder-6cdc98",
           "status": "completed",
           "returncode": 0,
           "deliverable_status": "invalid",
@@ -303,70 +314,15 @@
               "contract_fingerprint": "6d2db3a2744ea56ae72e60c339632c6bd820728e99273452be291bc0b4b2fd66",
               "contract_version": 1,
               "criterion_id": "result",
-              "ended_at": "2026-10-18T04:26:21.935412+00:00",
-              "evidence_ref": "acceptance-evidence/0-output-0.bin",
-              "executed": true,
-              "reason": "missing required JSON field",
-              "returncode": null,
-              "sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
-              "started_at": "2026-10-18T04:26:21.934774+00:00",
-              "status": "invalid",
-              "task_id": "20261018-002621-coder-62971a",
-              "validator": "output-extraction",
-              "validator_version": 1
-            }
-          ],
-          "permission_blocks": []
-        },
-        {
-          "task_id": "20261018-002622-coder-bec359",
-          "status": "completed",
-          "returncode": 0,
-          "deliverable_status": "invalid",
-          "acceptance_status": "failed",
-          "acceptance_reason": "Required output invalid",
-          "acceptance_contract": {
-            "contract_fingerprint": "6d2db3a2744ea56ae72e60c339632c6bd820728e99273452be291bc0b4b2fd66",
-            "contract_version": 1,
-            "required_checks": [],
-            "required_outputs": [
-              {
-                "id": "result",
-                "schema": {
-                  "properties": {
-                    "name": {
-                      "minLength": 1,
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "name"
-                  ],
-                  "type": "object"
-                },
-                "source": "stdout"
-              }
-            ],
-            "required_permissions": [],
-            "result_type": "extraction",
-            "validation_rules": {}
-          },
-          "checks": [],
-          "outputs": [
-            {
-              "attempt": "0:1",
-              "contract_fingerprint": "6d2db3a2744ea56ae72e60c339632c6bd820728e99273452be291bc0b4b2fd66",
-              "contract_version": 1,
-              "criterion_id": "result",
-              "ended_at": "2026-10-18T04:26:22.135092+00:00",
+              "ended_at": "2026-10-18T04:32:00.861501+00:00",
               "evidence_ref": "acceptance-evidence/0-output-0.bin",
               "executed": true,
               "reason": "Expecting property name enclosed in double quotes: line 1 column 2 (char 1)",
               "returncode": null,
               "sha256": "8f9302f65614f26c0ac129b3a69b2617d858989920ca60be65da649dc4b34118",
-              "started_at": "2026-10-18T04:26:22.134420+00:00",
+              "started_at": "2026-10-18T04:32:00.860962+00:00",
               "status": "invalid",
-              "task_id": "20261018-002622-coder-bec359",
+              "task_id": "20261018-003200-coder-6cdc98",
               "validator": "output-extraction",
               "validator_version": 1
             }
@@ -374,7 +330,7 @@
           "permission_blocks": []
         },
         {
-          "task_id": "20261018-002621-coder-747fd2",
+          "task_id": "20261018-003200-coder-b0954e",
           "status": "completed",
           "returncode": 0,
           "deliverable_status": "invalid",
@@ -413,15 +369,70 @@
               "contract_fingerprint": "6d2db3a2744ea56ae72e60c339632c6bd820728e99273452be291bc0b4b2fd66",
               "contract_version": 1,
               "criterion_id": "result",
-              "ended_at": "2026-10-18T04:26:21.744554+00:00",
+              "ended_at": "2026-10-18T04:32:00.556858+00:00",
               "evidence_ref": "acceptance-evidence/0-output-0.bin",
               "executed": true,
               "reason": "expected string",
               "returncode": null,
               "sha256": "cf01b239da6d8e04545849d5423c3983b3056fea30d782ded6e05c1da901f94a",
-              "started_at": "2026-10-18T04:26:21.743839+00:00",
+              "started_at": "2026-10-18T04:32:00.556250+00:00",
               "status": "invalid",
-              "task_id": "20261018-002621-coder-747fd2",
+              "task_id": "20261018-003200-coder-b0954e",
+              "validator": "output-extraction",
+              "validator_version": 1
+            }
+          ],
+          "permission_blocks": []
+        },
+        {
+          "task_id": "20261018-003200-coder-dd4d1b",
+          "status": "completed",
+          "returncode": 0,
+          "deliverable_status": "invalid",
+          "acceptance_status": "failed",
+          "acceptance_reason": "Required output invalid",
+          "acceptance_contract": {
+            "contract_fingerprint": "6d2db3a2744ea56ae72e60c339632c6bd820728e99273452be291bc0b4b2fd66",
+            "contract_version": 1,
+            "required_checks": [],
+            "required_outputs": [
+              {
+                "id": "result",
+                "schema": {
+                  "properties": {
+                    "name": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name"
+                  ],
+                  "type": "object"
+                },
+                "source": "stdout"
+              }
+            ],
+            "required_permissions": [],
+            "result_type": "extraction",
+            "validation_rules": {}
+          },
+          "checks": [],
+          "outputs": [
+            {
+              "attempt": "0:1",
+              "contract_fingerprint": "6d2db3a2744ea56ae72e60c339632c6bd820728e99273452be291bc0b4b2fd66",
+              "contract_version": 1,
+              "criterion_id": "result",
+              "ended_at": "2026-10-18T04:32:00.704846+00:00",
+              "evidence_ref": "acceptance-evidence/0-output-0.bin",
+              "executed": true,
+              "reason": "missing required JSON field",
+              "returncode": null,
+              "sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+              "started_at": "2026-10-18T04:32:00.704165+00:00",
+              "status": "invalid",
+              "task_id": "20261018-003200-coder-dd4d1b",
               "validator": "output-extraction",
               "validator_version": 1
             }
@@ -429,7 +440,7 @@
           "permission_blocks": []
         }
       ],
-      "evidence_root": "/tmp/ambu-p1-final-evidence.RC1zik/test_P1_E06_extraction_missing_or_malformed_required_fields"
+      "evidence_root": "/tmp/ambu-p1-semantic-evidence.0KBp9Z/test_P1_E06_extraction_missing_or_malformed_required_fields"
     },
     {
       "id": "E07",
@@ -440,19 +451,30 @@
       "fixture_worker": "#!/usr/bin/python3\nprint('{\"answer\": \"The fixture defines the result as 42.\", \"evidence\": [], \"limitations\": []}')\n",
       "observed_runs": [
         {
-          "task_id": "20261018-002622-coder-280849",
+          "task_id": "20261018-003200-coder-96a1ad",
           "status": "completed",
           "returncode": 0,
           "deliverable_status": "invalid",
           "acceptance_status": "failed",
           "acceptance_reason": "Required output invalid",
           "acceptance_contract": {
-            "contract_fingerprint": "a2385b9427c510abd1b8b0b5ec5e6922b2065c454f0dd9b50ae43d075905c807",
+            "contract_fingerprint": "c3a9a990c95e537c8ceb600c7ae9a2f02f97c49ff28277d51dde1ebde6f53971",
             "contract_version": 1,
             "required_checks": [],
             "required_outputs": [
               {
                 "id": "result",
+                "schema": {
+                  "properties": {
+                    "answer": {
+                      "enum": [
+                        "The fixture defines the result as 42."
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                },
                 "source": "stdout"
               }
             ],
@@ -464,18 +486,18 @@
           "outputs": [
             {
               "attempt": "0:1",
-              "contract_fingerprint": "a2385b9427c510abd1b8b0b5ec5e6922b2065c454f0dd9b50ae43d075905c807",
+              "contract_fingerprint": "c3a9a990c95e537c8ceb600c7ae9a2f02f97c49ff28277d51dde1ebde6f53971",
               "contract_version": 1,
               "criterion_id": "result",
-              "ended_at": "2026-10-18T04:26:22.338945+00:00",
+              "ended_at": "2026-10-18T04:32:01.024573+00:00",
               "evidence_ref": "acceptance-evidence/0-output-0.bin",
               "executed": true,
               "reason": "Research evidence missing or invalid",
               "returncode": null,
               "sha256": "11f6e8b7a431034cfa19892ca94d3fc430bcee783b00579350f661bfd7d6188f",
-              "started_at": "2026-10-18T04:26:22.338202+00:00",
+              "started_at": "2026-10-18T04:32:01.023969+00:00",
               "status": "invalid",
-              "task_id": "20261018-002622-coder-280849",
+              "task_id": "20261018-003200-coder-96a1ad",
               "validator": "output-research",
               "validator_version": 1
             }
@@ -483,7 +505,7 @@
           "permission_blocks": []
         }
       ],
-      "evidence_root": "/tmp/ambu-p1-final-evidence.RC1zik/test_P1_E07_research_requires_supporting_evidence"
+      "evidence_root": "/tmp/ambu-p1-semantic-evidence.0KBp9Z/test_P1_E07_research_requires_supporting_evidence"
     },
     {
       "id": "E08",
@@ -494,7 +516,7 @@
       "fixture_worker": "#!/usr/bin/python3\nfrom pathlib import Path\nimport sys\nPath('answer.txt').write_text('42\\n')\nprint('permission denied for an unknown operation', file=sys.stderr)\n",
       "observed_runs": [
         {
-          "task_id": "20261018-002622-coder-63299a",
+          "task_id": "20261018-003201-coder-83721b",
           "status": "completed",
           "returncode": 0,
           "deliverable_status": "satisfied",
@@ -524,15 +546,15 @@
               "contract_fingerprint": "b33167586abc426a81ce8abe3ee9e7d136d102086dcb6975d08f948dc0a94b16",
               "contract_version": 1,
               "criterion_id": "answer",
-              "ended_at": "2026-10-18T04:26:22.536535+00:00",
+              "ended_at": "2026-10-18T04:32:01.952081+00:00",
               "evidence_ref": "acceptance-evidence/0-output-0.bin",
               "executed": true,
               "reason": "Declared output rules satisfied",
               "returncode": null,
               "sha256": "084c799cd551dd1d8d5c5f9a5d593b2e931f5e36122ee5c793c1d08a19839cc0",
-              "started_at": "2026-10-18T04:26:22.536275+00:00",
+              "started_at": "2026-10-18T04:32:01.951865+00:00",
               "status": "satisfied",
-              "task_id": "20261018-002622-coder-63299a",
+              "task_id": "20261018-003201-coder-83721b",
               "validator": "output-implementation",
               "validator_version": 1
             }
@@ -543,7 +565,7 @@
               "contract_fingerprint": "b33167586abc426a81ce8abe3ee9e7d136d102086dcb6975d08f948dc0a94b16",
               "contract_version": 1,
               "criterion_id": "permission",
-              "ended_at": "2026-10-18T04:26:22.535427+00:00",
+              "ended_at": "2026-10-18T04:32:01.951054+00:00",
               "evidence_ref": "acceptance-evidence/denial-0.txt",
               "executed": true,
               "line": 1,
@@ -551,18 +573,18 @@
               "operation": null,
               "reason": "Denial necessity unavailable",
               "returncode": 0,
-              "started_at": "2026-10-18T04:26:22.535422+00:00",
+              "started_at": "2026-10-18T04:32:01.951050+00:00",
               "status": "failed",
               "stream": "stderr",
               "target": null,
-              "task_id": "20261018-002622-coder-63299a",
+              "task_id": "20261018-003201-coder-83721b",
               "validator": "denial-observation",
               "validator_version": 1
             }
           ]
         }
       ],
-      "evidence_root": "/tmp/ambu-p1-final-evidence.RC1zik/test_P1_E08_unresolved_denial_needs_review"
+      "evidence_root": "/tmp/ambu-p1-semantic-evidence.0KBp9Z/test_P1_E08_unresolved_denial_needs_review"
     },
     {
       "id": "E09",
@@ -573,7 +595,7 @@
       "fixture_worker": "#!/usr/bin/python3\nfrom pathlib import Path\nPath('answer.txt').write_text('42\\n')\nprint('All tests passed')\n",
       "observed_runs": [
         {
-          "task_id": "20261018-002622-coder-f7c233",
+          "task_id": "20261018-003202-coder-b5089f",
           "status": "completed",
           "returncode": 0,
           "deliverable_status": "satisfied",
@@ -611,14 +633,14 @@
               "contract_version": 1,
               "criterion_id": "real",
               "definition_fingerprint": "fad4f2f7462ee8e9652cc0e5fafbc51a3c3ea3ec6882f2fbcce7043661726a08",
-              "ended_at": "2026-10-18T04:26:22.838349+00:00",
+              "ended_at": "2026-10-18T04:32:02.208159+00:00",
               "evidence_ref": "acceptance-evidence/0-check-0.json",
               "executed": true,
               "reason": "Check exited nonzero",
               "returncode": 1,
-              "started_at": "2026-10-18T04:26:22.737520+00:00",
+              "started_at": "2026-10-18T04:32:02.107385+00:00",
               "status": "failed",
-              "task_id": "20261018-002622-coder-f7c233",
+              "task_id": "20261018-003202-coder-b5089f",
               "validator": "shell-check",
               "validator_version": 1
             }
@@ -630,15 +652,15 @@
               "contract_fingerprint": "71f00cd5029117dc685d065c3dfe6e2515bf04f8707b54074490cb7fd9f9a8be",
               "contract_version": 1,
               "criterion_id": "answer",
-              "ended_at": "2026-10-18T04:26:22.839454+00:00",
+              "ended_at": "2026-10-18T04:32:02.209251+00:00",
               "evidence_ref": "acceptance-evidence/0-output-0.bin",
               "executed": true,
               "reason": "Declared output rules satisfied",
               "returncode": null,
               "sha256": "084c799cd551dd1d8d5c5f9a5d593b2e931f5e36122ee5c793c1d08a19839cc0",
-              "started_at": "2026-10-18T04:26:22.839257+00:00",
+              "started_at": "2026-10-18T04:32:02.209049+00:00",
               "status": "satisfied",
-              "task_id": "20261018-002622-coder-f7c233",
+              "task_id": "20261018-003202-coder-b5089f",
               "validator": "output-implementation",
               "validator_version": 1
             }
@@ -646,7 +668,7 @@
           "permission_blocks": []
         }
       ],
-      "evidence_root": "/tmp/ambu-p1-final-evidence.RC1zik/test_P1_E09_actual_check_controls_false_claim"
+      "evidence_root": "/tmp/ambu-p1-semantic-evidence.0KBp9Z/test_P1_E09_actual_check_controls_false_claim"
     },
     {
       "id": "E10",
@@ -657,7 +679,7 @@
       "fixture_worker": "#!/usr/bin/python3\nfrom pathlib import Path\nPath('answer.txt').write_text('42\\n')\nPath('contract.json').write_text('{}')\nprint('New contract: no checks required')\n",
       "observed_runs": [
         {
-          "task_id": "20261018-002622-coder-5d89d4",
+          "task_id": "20261018-003202-coder-889721",
           "status": "completed",
           "returncode": 0,
           "deliverable_status": "missing",
@@ -687,14 +709,14 @@
               "contract_fingerprint": "b33167586abc426a81ce8abe3ee9e7d136d102086dcb6975d08f948dc0a94b16",
               "contract_version": 1,
               "criterion_id": "answer",
-              "ended_at": "2026-10-18T04:26:23.037929+00:00",
+              "ended_at": "2026-10-18T04:32:02.363207+00:00",
               "evidence_ref": null,
               "executed": true,
               "reason": "Required file does not exist",
               "returncode": null,
-              "started_at": "2026-10-18T04:26:23.037814+00:00",
+              "started_at": "2026-10-18T04:32:02.363092+00:00",
               "status": "missing",
-              "task_id": "20261018-002622-coder-5d89d4",
+              "task_id": "20261018-003202-coder-889721",
               "validator": "output-implementation",
               "validator_version": 1
             }
@@ -702,7 +724,53 @@
           "permission_blocks": []
         },
         {
-          "task_id": "20261018-002623-iterate-coder-9eb2ae",
+          "task_id": "20261018-003202-coder-b69365",
+          "status": "completed",
+          "returncode": 0,
+          "deliverable_status": "satisfied",
+          "acceptance_status": "passed",
+          "acceptance_reason": "All declared criteria satisfied by supervisor evidence",
+          "acceptance_contract": {
+            "contract_fingerprint": "b33167586abc426a81ce8abe3ee9e7d136d102086dcb6975d08f948dc0a94b16",
+            "contract_version": 1,
+            "required_checks": [],
+            "required_outputs": [
+              {
+                "equals": "42\n",
+                "id": "answer",
+                "path": "answer.txt",
+                "source": "file"
+              }
+            ],
+            "required_permissions": [],
+            "result_type": "implementation",
+            "validation_rules": {}
+          },
+          "checks": [],
+          "outputs": [
+            {
+              "artifact": "answer.txt",
+              "attempt": "0:1",
+              "contract_fingerprint": "b33167586abc426a81ce8abe3ee9e7d136d102086dcb6975d08f948dc0a94b16",
+              "contract_version": 1,
+              "criterion_id": "answer",
+              "ended_at": "2026-10-18T04:32:02.511031+00:00",
+              "evidence_ref": "acceptance-evidence/0-output-0.bin",
+              "executed": true,
+              "reason": "Declared output rules satisfied",
+              "returncode": null,
+              "sha256": "084c799cd551dd1d8d5c5f9a5d593b2e931f5e36122ee5c793c1d08a19839cc0",
+              "started_at": "2026-10-18T04:32:02.510356+00:00",
+              "status": "satisfied",
+              "task_id": "20261018-003202-coder-b69365",
+              "validator": "output-implementation",
+              "validator_version": 1
+            }
+          ],
+          "permission_blocks": []
+        },
+        {
+          "task_id": "20261018-003202-iterate-coder-ca9046",
           "status": "completed",
           "returncode": null,
           "deliverable_status": "satisfied",
@@ -740,14 +808,14 @@
               "contract_version": 1,
               "criterion_id": "same-check",
               "definition_fingerprint": "9278085332b66c9be60d068bd6ac07a40e92a32ad2e033448f9f0062e8e11f88",
-              "ended_at": "2026-10-18T04:26:23.585599+00:00",
+              "ended_at": "2026-10-18T04:32:02.811990+00:00",
               "evidence_ref": "acceptance-evidence/1-check-0.json",
               "executed": true,
               "reason": "Check exited zero",
               "returncode": 0,
-              "started_at": "2026-10-18T04:26:23.534965+00:00",
+              "started_at": "2026-10-18T04:32:02.761317+00:00",
               "status": "passed",
-              "task_id": "20261018-002623-iterate-coder-9eb2ae",
+              "task_id": "20261018-003202-iterate-coder-ca9046",
               "validator": "shell-check",
               "validator_version": 1
             }
@@ -759,61 +827,15 @@
               "contract_fingerprint": "f62c991f073c40cf1c5535360ecc80d64ec4b966916d06dfa9651afd48c18d56",
               "contract_version": 1,
               "criterion_id": "answer",
-              "ended_at": "2026-10-18T04:26:23.586478+00:00",
+              "ended_at": "2026-10-18T04:32:02.812870+00:00",
               "evidence_ref": "acceptance-evidence/1-output-0.bin",
               "executed": true,
               "reason": "Declared output rules satisfied",
               "returncode": null,
               "sha256": "084c799cd551dd1d8d5c5f9a5d593b2e931f5e36122ee5c793c1d08a19839cc0",
-              "started_at": "2026-10-18T04:26:23.586285+00:00",
+              "started_at": "2026-10-18T04:32:02.812672+00:00",
               "status": "satisfied",
-              "task_id": "20261018-002623-iterate-coder-9eb2ae",
-              "validator": "output-implementation",
-              "validator_version": 1
-            }
-          ],
-          "permission_blocks": []
-        },
-        {
-          "task_id": "20261018-002623-coder-a427eb",
-          "status": "completed",
-          "returncode": 0,
-          "deliverable_status": "satisfied",
-          "acceptance_status": "passed",
-          "acceptance_reason": "All declared criteria satisfied by supervisor evidence",
-          "acceptance_contract": {
-            "contract_fingerprint": "b33167586abc426a81ce8abe3ee9e7d136d102086dcb6975d08f948dc0a94b16",
-            "contract_version": 1,
-            "required_checks": [],
-            "required_outputs": [
-              {
-                "equals": "42\n",
-                "id": "answer",
-                "path": "answer.txt",
-                "source": "file"
-              }
-            ],
-            "required_permissions": [],
-            "result_type": "implementation",
-            "validation_rules": {}
-          },
-          "checks": [],
-          "outputs": [
-            {
-              "artifact": "answer.txt",
-              "attempt": "0:1",
-              "contract_fingerprint": "b33167586abc426a81ce8abe3ee9e7d136d102086dcb6975d08f948dc0a94b16",
-              "contract_version": 1,
-              "criterion_id": "answer",
-              "ended_at": "2026-10-18T04:26:23.228330+00:00",
-              "evidence_ref": "acceptance-evidence/0-output-0.bin",
-              "executed": true,
-              "reason": "Declared output rules satisfied",
-              "returncode": null,
-              "sha256": "084c799cd551dd1d8d5c5f9a5d593b2e931f5e36122ee5c793c1d08a19839cc0",
-              "started_at": "2026-10-18T04:26:23.227702+00:00",
-              "status": "satisfied",
-              "task_id": "20261018-002623-coder-a427eb",
+              "task_id": "20261018-003202-iterate-coder-ca9046",
               "validator": "output-implementation",
               "validator_version": 1
             }
@@ -821,7 +843,7 @@
           "permission_blocks": []
         }
       ],
-      "evidence_root": "/tmp/ambu-p1-final-evidence.RC1zik/test_P1_E10_retry_and_iterate_keep_original_contract"
+      "evidence_root": "/tmp/ambu-p1-semantic-evidence.0KBp9Z/test_P1_E10_retry_and_iterate_keep_original_contract"
     },
     {
       "id": "T01",
@@ -832,7 +854,7 @@
       "fixture_worker": "#!/usr/bin/python3\nprint('All done, all tests passed.')\n",
       "observed_runs": [
         {
-          "task_id": "20261018-002615-coder-742cdb",
+          "task_id": "20261018-003154-coder-d4e970",
           "status": "completed",
           "returncode": 0,
           "deliverable_status": "missing",
@@ -862,14 +884,14 @@
               "contract_fingerprint": "b33167586abc426a81ce8abe3ee9e7d136d102086dcb6975d08f948dc0a94b16",
               "contract_version": 1,
               "criterion_id": "answer",
-              "ended_at": "2026-10-18T04:26:15.431491+00:00",
+              "ended_at": "2026-10-18T04:31:54.693328+00:00",
               "evidence_ref": null,
               "executed": true,
               "reason": "Required file does not exist",
               "returncode": null,
-              "started_at": "2026-10-18T04:26:15.431384+00:00",
+              "started_at": "2026-10-18T04:31:54.693210+00:00",
               "status": "missing",
-              "task_id": "20261018-002615-coder-742cdb",
+              "task_id": "20261018-003154-coder-d4e970",
               "validator": "output-implementation",
               "validator_version": 1
             }
@@ -877,7 +899,7 @@
           "permission_blocks": []
         }
       ],
-      "evidence_root": "/tmp/ambu-p1-final-evidence.RC1zik/test_P1_T01_zero_exit_missing_deliverable"
+      "evidence_root": "/tmp/ambu-p1-semantic-evidence.0KBp9Z/test_P1_T01_zero_exit_missing_deliverable"
     },
     {
       "id": "T02",
@@ -888,7 +910,7 @@
       "fixture_worker": "#!/usr/bin/python3\nfrom pathlib import Path\nPath('answer.txt').write_text('42\\n')\n",
       "observed_runs": [
         {
-          "task_id": "20261018-002615-coder-faf326",
+          "task_id": "20261018-003154-coder-55be0c",
           "status": "completed",
           "returncode": 0,
           "deliverable_status": "satisfied",
@@ -926,14 +948,14 @@
               "contract_version": 1,
               "criterion_id": "arithmetic",
               "definition_fingerprint": "87ef63b32a756d150c1e096f6f87ec64ffcf2901846bd2006115b04b317b0e38",
-              "ended_at": "2026-10-18T04:26:15.726965+00:00",
+              "ended_at": "2026-10-18T04:31:54.950130+00:00",
               "evidence_ref": "acceptance-evidence/0-check-0.json",
               "executed": true,
               "reason": "Check exited nonzero",
               "returncode": 1,
-              "started_at": "2026-10-18T04:26:15.626223+00:00",
+              "started_at": "2026-10-18T04:31:54.849111+00:00",
               "status": "failed",
-              "task_id": "20261018-002615-coder-faf326",
+              "task_id": "20261018-003154-coder-55be0c",
               "validator": "shell-check",
               "validator_version": 1
             }
@@ -945,15 +967,15 @@
               "contract_fingerprint": "a845b0f242a14d3c306a67e502c774d06d0cf7ce187e3c9daa87ef2c4632f918",
               "contract_version": 1,
               "criterion_id": "answer",
-              "ended_at": "2026-10-18T04:26:15.728105+00:00",
+              "ended_at": "2026-10-18T04:31:54.951577+00:00",
               "evidence_ref": "acceptance-evidence/0-output-0.bin",
               "executed": true,
               "reason": "Declared output rules satisfied",
               "returncode": null,
               "sha256": "084c799cd551dd1d8d5c5f9a5d593b2e931f5e36122ee5c793c1d08a19839cc0",
-              "started_at": "2026-10-18T04:26:15.727889+00:00",
+              "started_at": "2026-10-18T04:31:54.951393+00:00",
               "status": "satisfied",
-              "task_id": "20261018-002615-coder-faf326",
+              "task_id": "20261018-003154-coder-55be0c",
               "validator": "output-implementation",
               "validator_version": 1
             }
@@ -961,7 +983,7 @@
           "permission_blocks": []
         }
       ],
-      "evidence_root": "/tmp/ambu-p1-final-evidence.RC1zik/test_P1_T02_real_failing_check"
+      "evidence_root": "/tmp/ambu-p1-semantic-evidence.0KBp9Z/test_P1_T02_real_failing_check"
     },
     {
       "id": "T03",
@@ -972,7 +994,7 @@
       "fixture_worker": "#!/usr/bin/python3\nfrom pathlib import Path\nimport sys\nPath('answer.txt').write_text('42\\n')\nprint('All good, everything passed.')\nprint('permission requested: external_directory (/fixture/input/*); auto-rejecting', file=sys.stderr)\n",
       "observed_runs": [
         {
-          "task_id": "20261018-002615-coder-447da7",
+          "task_id": "20261018-003155-coder-e2ae7c",
           "status": "completed",
           "returncode": 0,
           "deliverable_status": "satisfied",
@@ -1007,15 +1029,15 @@
               "contract_fingerprint": "79269e923de50ff7548634172f0baf63f71d5e05e761f960c58320f93dab7cba",
               "contract_version": 1,
               "criterion_id": "answer",
-              "ended_at": "2026-10-18T04:26:15.927717+00:00",
+              "ended_at": "2026-10-18T04:31:55.104827+00:00",
               "evidence_ref": "acceptance-evidence/0-output-0.bin",
               "executed": true,
               "reason": "Declared output rules satisfied",
               "returncode": null,
               "sha256": "084c799cd551dd1d8d5c5f9a5d593b2e931f5e36122ee5c793c1d08a19839cc0",
-              "started_at": "2026-10-18T04:26:15.927487+00:00",
+              "started_at": "2026-10-18T04:31:55.104616+00:00",
               "status": "satisfied",
-              "task_id": "20261018-002615-coder-447da7",
+              "task_id": "20261018-003155-coder-e2ae7c",
               "validator": "output-implementation",
               "validator_version": 1
             }
@@ -1026,7 +1048,7 @@
               "contract_fingerprint": "79269e923de50ff7548634172f0baf63f71d5e05e761f960c58320f93dab7cba",
               "contract_version": 1,
               "criterion_id": "permission",
-              "ended_at": "2026-10-18T04:26:15.926742+00:00",
+              "ended_at": "2026-10-18T04:31:55.103814+00:00",
               "evidence_ref": "acceptance-evidence/denial-0.txt",
               "executed": true,
               "line": 1,
@@ -1034,18 +1056,18 @@
               "operation": "external_directory",
               "reason": "Observed denial; necessity from exact frozen declaration",
               "returncode": 0,
-              "started_at": "2026-10-18T04:26:15.926737+00:00",
+              "started_at": "2026-10-18T04:31:55.103809+00:00",
               "status": "failed",
               "stream": "stderr",
               "target": "/fixture/input/*",
-              "task_id": "20261018-002615-coder-447da7",
+              "task_id": "20261018-003155-coder-e2ae7c",
               "validator": "native-denial-parser",
               "validator_version": 1
             }
           ]
         }
       ],
-      "evidence_root": "/tmp/ambu-p1-final-evidence.RC1zik/test_P1_T03_required_denial_despite_reassurance"
+      "evidence_root": "/tmp/ambu-p1-semantic-evidence.0KBp9Z/test_P1_T03_required_denial_despite_reassurance"
     },
     {
       "id": "T04",
@@ -1056,7 +1078,7 @@
       "fixture_worker": "#!/usr/bin/python3\nfrom pathlib import Path\nimport sys\nPath('answer.txt').write_text('42\\n')\nprint('permission requested: external_directory (/fixture/optional/*); auto-rejecting', file=sys.stderr)\nprint('tool failed', file=sys.stderr)\nprint('Error: The user rejected permission to use this specific tool call.', file=sys.stderr)\n",
       "observed_runs": [
         {
-          "task_id": "20261018-002616-coder-8fabf3",
+          "task_id": "20261018-003155-coder-a3f436",
           "status": "completed",
           "returncode": 0,
           "deliverable_status": "satisfied",
@@ -1101,14 +1123,14 @@
               "contract_version": 1,
               "criterion_id": "answer-check",
               "definition_fingerprint": "92391fd9b943f8d7fff02573d49017c948ff362f8bf97a5629b578fbfcf4d876",
-              "ended_at": "2026-10-18T04:26:16.182316+00:00",
+              "ended_at": "2026-10-18T04:31:55.312372+00:00",
               "evidence_ref": "acceptance-evidence/0-check-0.json",
               "executed": true,
               "reason": "Check exited zero",
               "returncode": 0,
-              "started_at": "2026-10-18T04:26:16.131600+00:00",
+              "started_at": "2026-10-18T04:31:55.261662+00:00",
               "status": "passed",
-              "task_id": "20261018-002616-coder-8fabf3",
+              "task_id": "20261018-003155-coder-a3f436",
               "validator": "shell-check",
               "validator_version": 1
             }
@@ -1120,15 +1142,15 @@
               "contract_fingerprint": "b9d05002ad7f0fb5fdcca6c72898cdfdc80b36823c7649823388d86fe515ed0e",
               "contract_version": 1,
               "criterion_id": "answer",
-              "ended_at": "2026-10-18T04:26:16.182921+00:00",
+              "ended_at": "2026-10-18T04:31:55.313039+00:00",
               "evidence_ref": "acceptance-evidence/0-output-0.bin",
               "executed": true,
               "reason": "Declared output rules satisfied",
               "returncode": null,
               "sha256": "084c799cd551dd1d8d5c5f9a5d593b2e931f5e36122ee5c793c1d08a19839cc0",
-              "started_at": "2026-10-18T04:26:16.182714+00:00",
+              "started_at": "2026-10-18T04:31:55.312830+00:00",
               "status": "satisfied",
-              "task_id": "20261018-002616-coder-8fabf3",
+              "task_id": "20261018-003155-coder-a3f436",
               "validator": "output-implementation",
               "validator_version": 1
             }
@@ -1139,7 +1161,7 @@
               "contract_fingerprint": "b9d05002ad7f0fb5fdcca6c72898cdfdc80b36823c7649823388d86fe515ed0e",
               "contract_version": 1,
               "criterion_id": "permission",
-              "ended_at": "2026-10-18T04:26:16.130687+00:00",
+              "ended_at": "2026-10-18T04:31:55.260785+00:00",
               "evidence_ref": "acceptance-evidence/denial-0.txt",
               "executed": true,
               "line": 1,
@@ -1147,18 +1169,18 @@
               "operation": "external_directory",
               "reason": "Observed denial; necessity from exact frozen declaration",
               "returncode": 0,
-              "started_at": "2026-10-18T04:26:16.130683+00:00",
+              "started_at": "2026-10-18T04:31:55.260780+00:00",
               "status": "failed",
               "stream": "stderr",
               "target": "/fixture/optional/*",
-              "task_id": "20261018-002616-coder-8fabf3",
+              "task_id": "20261018-003155-coder-a3f436",
               "validator": "native-denial-parser",
               "validator_version": 1
             }
           ]
         }
       ],
-      "evidence_root": "/tmp/ambu-p1-final-evidence.RC1zik/test_P1_T04_optional_denial_does_not_reject"
+      "evidence_root": "/tmp/ambu-p1-semantic-evidence.0KBp9Z/test_P1_T04_optional_denial_does_not_reject"
     },
     {
       "id": "T05",
@@ -1169,7 +1191,7 @@
       "fixture_worker": "#!/usr/bin/python3\nfrom pathlib import Path\nPath('answer.txt').write_text('42\\n')\n",
       "observed_runs": [
         {
-          "task_id": "20261018-002616-coder-881f50",
+          "task_id": "20261018-003155-coder-bb22b3",
           "status": "completed",
           "returncode": 0,
           "deliverable_status": "satisfied",
@@ -1199,15 +1221,15 @@
               "contract_fingerprint": "b33167586abc426a81ce8abe3ee9e7d136d102086dcb6975d08f948dc0a94b16",
               "contract_version": 1,
               "criterion_id": "answer",
-              "ended_at": "2026-10-18T04:26:16.389105+00:00",
+              "ended_at": "2026-10-18T04:31:55.470164+00:00",
               "evidence_ref": "acceptance-evidence/0-output-0.bin",
               "executed": true,
               "reason": "Declared output rules satisfied",
               "returncode": null,
               "sha256": "084c799cd551dd1d8d5c5f9a5d593b2e931f5e36122ee5c793c1d08a19839cc0",
-              "started_at": "2026-10-18T04:26:16.388324+00:00",
+              "started_at": "2026-10-18T04:31:55.469460+00:00",
               "status": "satisfied",
-              "task_id": "20261018-002616-coder-881f50",
+              "task_id": "20261018-003155-coder-bb22b3",
               "validator": "output-implementation",
               "validator_version": 1
             }
@@ -1215,7 +1237,7 @@
           "permission_blocks": []
         }
       ],
-      "evidence_root": "/tmp/ambu-p1-final-evidence.RC1zik/test_P1_T05_correct_file_empty_stdout"
+      "evidence_root": "/tmp/ambu-p1-semantic-evidence.0KBp9Z/test_P1_T05_correct_file_empty_stdout"
     }
   ]
 }

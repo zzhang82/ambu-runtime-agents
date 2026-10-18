@@ -2387,10 +2387,11 @@ def iterate_cmd(args):
                 res.update(returncode=125, stderr=input_error)
             else:
                 event_capture.record_command(check_cmd)
+                check_timeout = acceptance.check_timeout(check_cmd, args.check_timeout)
                 try:
-                    res = run_shell_check(check_cmd, run_cwd, args.check_timeout)
+                    res = run_shell_check(check_cmd, run_cwd, check_timeout)
                 except subprocess.TimeoutExpired as exc:
-                    res = {"started_at": started_eval, "ended_at": now_iso(), "returncode": 124, "stdout": ensure_text(exc.stdout), "stderr": f"check timeout after {args.check_timeout}s"}
+                    res = {"started_at": started_eval, "ended_at": now_iso(), "returncode": 124, "stdout": ensure_text(exc.stdout), "stderr": f"check timeout after {check_timeout}s"}
         acceptance.evaluate(str(round_num), stdout=stdout, observed={check_cmd: res} if check_cmd else {})
         if res["returncode"] == 0 and artifacts:
             ok, err = loop_engine_mod.check_eval_artifacts(run_cwd, artifacts)

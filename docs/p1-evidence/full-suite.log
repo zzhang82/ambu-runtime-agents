@@ -14,11 +14,13 @@ test_explicit_manual_review_never_invents_semantic_verification (test_acceptance
 test_frozen_object_cannot_be_mutated_and_payload_is_detached (test_acceptance_integrity.AcceptanceIntegrity.test_frozen_object_cannot_be_mutated_and_payload_is_detached) ... ok
 test_iterate_does_not_execute_changed_verifier (test_acceptance_integrity.AcceptanceIntegrity.test_iterate_does_not_execute_changed_verifier) ... ok
 test_iterate_failed_worker_does_not_reuse_earlier_check (test_acceptance_integrity.AcceptanceIntegrity.test_iterate_failed_worker_does_not_reuse_earlier_check) ... ok
+test_iterate_honors_frozen_check_timeout (test_acceptance_integrity.AcceptanceIntegrity.test_iterate_honors_frozen_check_timeout) ... ok
 test_later_check_mutation_invalidates_earlier_pass_evidence (test_acceptance_integrity.AcceptanceIntegrity.test_later_check_mutation_invalidates_earlier_pass_evidence) ... ok
 test_malformed_contracts_never_dispatch (test_acceptance_integrity.AcceptanceIntegrity.test_malformed_contracts_never_dispatch) ... ok
 test_missing_and_failed_evidence_precede_unresolved_denial (test_acceptance_integrity.AcceptanceIntegrity.test_missing_and_failed_evidence_precede_unresolved_denial) ... ok
 test_persisted_contract_tampering_is_review_not_acceptance (test_acceptance_integrity.AcceptanceIntegrity.test_persisted_contract_tampering_is_review_not_acceptance) ... ok
 test_process_failed_can_have_independently_passed_acceptance (test_acceptance_integrity.AcceptanceIntegrity.test_process_failed_can_have_independently_passed_acceptance) ... ok
+test_synthesized_contract_preserves_legacy_artifact_normalization (test_acceptance_integrity.AcceptanceIntegrity.test_synthesized_contract_preserves_legacy_artifact_normalization) ... ok
 test_P1_E01_worker_contract_replacement_ignored (test_acceptance_invariants.AcceptanceInvariants.test_P1_E01_worker_contract_replacement_ignored) ... ok
 test_P1_E02_no_check_executed_despite_claim (test_acceptance_invariants.AcceptanceInvariants.test_P1_E02_no_check_executed_despite_claim) ... ok
 test_P1_E03_legacy_completed_stays_unknown_without_rewrite (test_acceptance_invariants.AcceptanceInvariants.test_P1_E03_legacy_completed_stays_unknown_without_rewrite) ... ok
@@ -29,6 +31,7 @@ test_P1_E07_research_requires_supporting_evidence (test_acceptance_invariants.Ac
 test_P1_E08_unresolved_denial_needs_review (test_acceptance_invariants.AcceptanceInvariants.test_P1_E08_unresolved_denial_needs_review) ... ok
 test_P1_E09_actual_check_controls_false_claim (test_acceptance_invariants.AcceptanceInvariants.test_P1_E09_actual_check_controls_false_claim) ... ok
 test_P1_E10_retry_and_iterate_keep_original_contract (test_acceptance_invariants.AcceptanceInvariants.test_P1_E10_retry_and_iterate_keep_original_contract) ... ok
+test_research_without_deterministic_answer_rule_needs_review (test_acceptance_invariants.AcceptanceInvariants.test_research_without_deterministic_answer_rule_needs_review) ... ok
 test_structured_validator_missing_and_unavailable_controls (test_acceptance_invariants.AcceptanceInvariants.test_structured_validator_missing_and_unavailable_controls) ... ok
 test_structured_validator_positive_controls (test_acceptance_invariants.AcceptanceInvariants.test_structured_validator_positive_controls) ... ok
 test_execute_route_preserves_matched_status_on_success (test_actions.ActionsTests.test_execute_route_preserves_matched_status_on_success) ... ok
@@ -78,7 +81,7 @@ test_run_command_omits_agent_and_auto_routes (test_cli_do.CliDoIntegrationTests.
 test_direct_runtime_tools_are_unsupported (test_execution_substrate.ExecutionSubstrateTests.test_direct_runtime_tools_are_unsupported) ... ok
 test_dynamic_transient_failure_uses_next_model_and_records_cooldown (test_execution_substrate.ExecutionSubstrateTests.test_dynamic_transient_failure_uses_next_model_and_records_cooldown) ... [build] Attempt 1/2: Running on model 'local/grok-composer-2.5-fast' (timeout: 30s)...
 [build] Attempt 1/2: Failed with exit code 1.
-[build] Transient rate limit/server error encountered. Backing off for 1.2s before fallback...
+[build] Transient rate limit/server error encountered. Backing off for 1.1s before fallback...
 [build] Falling back to next candidate model: 'local/gemini-3.7-flash-high'...
 [build] Attempt 2/2: Running on model 'local/gemini-3.7-flash-high' (timeout: 30s)...
 [build] Attempt 2/2: Succeeded on model 'local/gemini-3.7-flash-high'.
@@ -342,7 +345,7 @@ test_profile_scope_is_retained (test_tools.ToolRegistryTests.test_profile_scope_
 test_version_surfaces_match (test_version_sync.VersionSyncTests.test_version_surfaces_match) ... ok
 
 ----------------------------------------------------------------------
-Ran 332 tests in 35.938s
+Ran 335 tests in 34.706s
 
 OK
 {
@@ -351,7 +354,7 @@ OK
   "contract_fingerprint": null,
   "deliverable_status": "unknown",
   "model": "test/model",
-  "run_dir": "<fixture>/20261018-002626-coder-cf76c3",
+  "run_dir": "<fixture>/20261018-003213-coder-05c71a",
   "status": "completed",
-  "task_id": "20261018-002626-coder-cf76c3"
+  "task_id": "20261018-003213-coder-05c71a"
 }
