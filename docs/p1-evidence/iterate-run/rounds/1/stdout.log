@@ -1,0 +1,1 @@
+Updated `answer.py` so `double(value)` returns `value * 2`. The provided check passes: `double-values PASS`. `contract.json` was unchanged.

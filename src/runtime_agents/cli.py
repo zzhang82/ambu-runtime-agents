@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from runtime_agents import actions as actions_mod
+from runtime_agents import acceptance as acceptance_mod
 from runtime_agents import assistant_router as assistant_router_mod
 from runtime_agents import execution_substrate as execution_substrate_mod
 from runtime_agents import fabric_entry as fabric_entry_mod
@@ -652,6 +653,11 @@ def normalize_run_args(args):
             args.json = True
         elif token == "--fallback":
             args.fallback = True
+        elif token == "--acceptance-contract" and i + 1 < len(tokens):
+            args.acceptance_contract = tokens[i + 1]
+            i += 1
+        elif token.startswith("--acceptance-contract="):
+            args.acceptance_contract = token.split("=", 1)[1]
         elif token == "--approve" and i + 1 < len(tokens):
             args.approve.append(tokens[i + 1])
             i += 1
@@ -700,6 +706,11 @@ def normalize_iterate_args(args):
             args.json = True
         elif token == "--fallback":
             args.fallback = True
+        elif token == "--acceptance-contract" and i + 1 < len(tokens):
+            args.acceptance_contract = tokens[i + 1]
+            i += 1
+        elif token.startswith("--acceptance-contract="):
+            args.acceptance_contract = token.split("=", 1)[1]
         elif token == "--check" and i + 1 < len(tokens):
             args.check = tokens[i + 1]
             i += 1
@@ -1842,6 +1853,24 @@ def classify_task_failure(task_id_value):
     return classify_failure_text("\n".join(chunks))
 
 
+def freeze_acceptance(args, cwd, *, iterate=False):
+    try:
+        return acceptance_mod.from_args(args, cwd, iterate=iterate)
+    except (ValueError, OSError) as exc:
+        raise SystemExit(f"Invalid acceptance contract: {exc}") from exc
+
+
+def acceptance_approvals(config, agent_cfg, prompt, contract):
+    # Contracts declare work, never approve it. Check commands use the same gate.
+    approvals = detect_approvals(config, agent_cfg, prompt + "\n" + acceptance_mod.policy_text(contract))
+    if contract:
+        approvals = sorted(set(approvals) | {
+            p["operation"] for p in contract.payload()["required_permissions"]
+            if p["operation"] in (agent_cfg.get("approval_required") or [])
+        })
+    return approvals
+
+
 def run_task(args):
     args = normalize_run_args(args)
     ensure_state()
@@ -1873,6 +1902,7 @@ def run_task(args):
     prompt = " ".join(args.prompt).strip()
     if not prompt:
         raise SystemExit("Prompt is required")
+    acceptance_contract = freeze_acceptance(args, run_cwd)
 
     memory_opts = build_memory_options(
         config,
@@ -1881,6 +1911,7 @@ def run_task(args):
         reason="no_memory_flag" if getattr(args, "no_memory", False) else ("non_workspace_task" if not getattr(args, "workspace", None) else None),
     )
     effective_prompt, memory_recall = apply_memory_prelude(prompt, memory_namespace, memory_opts.get("query") or prompt, memory_opts)
+    effective_prompt += acceptance_mod.worker_instructions(acceptance_contract)
     
     event_capture = EventCapture(runtime="runtime-agents", workspace=getattr(args, "workspace", None))
     event_capture.set_goal(prompt)
@@ -1897,7 +1928,7 @@ def run_task(args):
         })
         return 0
 
-    approvals = detect_approvals(config, agent_cfg, prompt)
+    approvals = acceptance_approvals(config, agent_cfg, prompt, acceptance_contract)
     approved = parse_approved(getattr(args, "approve", []))
     unapproved = unauthorized_approvals(approvals, approved)
     if getattr(args, "dry_run", False):
@@ -1929,6 +1960,7 @@ def run_task(args):
     tid = task_id(args.agent)
     run_dir = RUNS_DIR / tid
     run_dir.mkdir(parents=True, exist_ok=False)
+    acceptance = acceptance_mod.Acceptance(acceptance_contract, tid, run_cwd, run_dir, run_shell_check)
     (run_dir / "prompt.txt").write_text(effective_prompt + "\n", encoding="utf-8")
 
     resumed_from = getattr(args, "resumed_from_task_id", None)
@@ -1936,6 +1968,7 @@ def run_task(args):
     fork_session = getattr(args, "fork", False)
 
     base_meta = {
+        **acceptance.fields(),
         "task_id": tid,
         "agent": args.agent,
         "tool": tool,
@@ -1957,6 +1990,7 @@ def run_task(args):
         "memory_namespace": memory_namespace,
         "memory_recall": memory_recall,
         "resumed_from": resumed_from,
+        "retry_of": getattr(args, "retry_of", None),
         "continued_from_session": initial_session_id,
         "session_id": None,
         "timeout": getattr(args, "timeout", None),
@@ -1967,6 +2001,8 @@ def run_task(args):
     event_capture.set_run_id(tid)
 
     if unapproved:
+        acceptance.policy_denials(unapproved)
+        acceptance.evaluate("policy", execute=False)
         result = {
             "task_id": tid,
             "status": "approval_required",
@@ -1974,7 +2010,11 @@ def run_task(args):
             "approved_capabilities": sorted(approved),
             "unapproved_capabilities": unapproved,
             "message": "Task blocked by MVP policy gate. Re-run with --approve <capability> to execute locally.",
+            **acceptance.fields(),
         }
+        base_meta.update(acceptance.fields())
+        write_json(run_dir / "metadata.json", base_meta)
+        append_task(base_meta)
         write_json(run_dir / "result.json", result)
         print_json(result)
         event_capture.finish(outcome="blocked", summary="Task blocked by MVP policy gate")
@@ -2014,6 +2054,7 @@ def run_task(args):
             rc = getattr(exc, "code", 1) if isinstance(getattr(exc, "code", None), int) else 1
         term_meta = {
             **base_meta,
+            **acceptance.evaluate("interrupted", execute=False),
             "status": status,
             "ended_at": ended_at,
             "error": str(exc) or status,
@@ -2024,6 +2065,7 @@ def run_task(args):
             "status": status,
             "returncode": rc,
             "error": str(exc) or status,
+            **acceptance.fields(),
         })
         append_task(term_meta)
         raise
@@ -2039,9 +2081,12 @@ def run_task(args):
     (run_dir / "stdout.log").write_text(final["stdout"], encoding="utf-8")
     (run_dir / "stderr.log").write_text(final["stderr"], encoding="utf-8")
     status = "completed" if final["returncode"] == 0 else "failed"
+    acceptance.capture_denials(attempts)
+    acceptance.evaluate(f"0:{final['attempt']}", stdout=final["stdout"])
     recorded_session_id = final.get("session_id")
     meta = {
         **base_meta,
+        **acceptance.fields(),
         "status": status,
         "ended_at": now_iso(),
         "fallback_used": final["attempt"] > 1,
@@ -2049,13 +2094,15 @@ def run_task(args):
         "session_id": recorded_session_id,
     }
     write_json(run_dir / "metadata.json", meta)
-    result_summary = {"task_id": tid, "status": status, "returncode": final["returncode"], "attempts": attempts}
+    result_summary = {"task_id": tid, "status": status, "returncode": final["returncode"], "attempts": attempts,
+                      **acceptance.fields()}
     write_json(run_dir / "result.json", result_summary)
     append_task(meta)
     event_capture.finish(outcome=status, summary=f"Task finished with {status}")
     if not getattr(args, "json", False):
         print(f"[{args.agent}] Task {tid} finished with status '{status}' (exit {final['returncode']}).", file=sys.stderr, flush=True)
-    print_json({"task_id": tid, "status": status, "model": final["model"], "run_dir": str(run_dir)})
+    print_json({"task_id": tid, "status": status, "model": final["model"], "run_dir": str(run_dir),
+                **acceptance_mod.view_fields(meta)})
     return final["returncode"]
 
 
@@ -2118,6 +2165,7 @@ def resume_task_cmd(args):
         session_id=session_id,
         fork=getattr(args, "fork", True),
         resumed_from_task_id=args.task_id,
+        frozen_acceptance_contract=task.get("acceptance_contract"),
     )
     if is_iterate:
         return iterate_cmd(sub_args)
@@ -2160,6 +2208,7 @@ def iterate_cmd(args):
     eval_artifacts = [a.strip() for a in getattr(args, "eval_artifact", []) if a and a.strip()]
     if not args.check and not eval_artifacts:
         raise SystemExit("Either --check or --eval-artifact is required")
+    acceptance_contract = freeze_acceptance(args, run_cwd, iterate=True)
 
     memory_opts = build_memory_options(
         config,
@@ -2168,6 +2217,7 @@ def iterate_cmd(args):
         reason="no_memory_flag" if getattr(args, "no_memory", False) else ("non_workspace_task" if not getattr(args, "workspace", None) else None),
     )
     effective_goal, memory_recall = apply_memory_prelude(goal, memory_namespace, memory_opts.get("query") or goal, memory_opts)
+    effective_goal += acceptance_mod.worker_instructions(acceptance_contract)
     
     event_capture = EventCapture(runtime="runtime-agents", workspace=getattr(args, "workspace", None))
     event_capture.set_goal(goal)
@@ -2190,7 +2240,7 @@ def iterate_cmd(args):
     if eval_artifacts:
         policy_parts.extend(eval_artifacts)
     policy_text = "\n".join(policy_parts)
-    approvals = detect_approvals(config, agent_cfg, policy_text)
+    approvals = acceptance_approvals(config, agent_cfg, policy_text, acceptance_contract)
     blocked = sorted(set(approvals) & ITERATE_BLOCKED_CAPABILITIES)
     approved = parse_approved(args.approve)
     unapproved = unauthorized_approvals(approvals, approved)
@@ -2229,8 +2279,12 @@ def iterate_cmd(args):
         tid = iterate_task_id(args.agent)
         run_dir = RUNS_DIR / tid
         run_dir.mkdir(parents=True, exist_ok=False)
+        acceptance = acceptance_mod.Acceptance(acceptance_contract, tid, run_cwd, run_dir, run_shell_check)
+        acceptance.policy_denials(sorted(set(blocked + unapproved)))
+        acceptance.evaluate("policy", execute=False)
         (run_dir / "goal.txt").write_text(goal + "\n", encoding="utf-8")
         meta = {
+            **acceptance.fields(),
             "task_id": tid,
             "mode": "iterate",
             "agent": args.agent,
@@ -2268,6 +2322,7 @@ def iterate_cmd(args):
             "blocked_capabilities": blocked,
             "unapproved_capabilities": unapproved,
             "message": "iterate v0.2 is local-workspace only; blocked risky capabilities are not allowed inside iterate.",
+            **acceptance_mod.view_fields(meta),
         })
         return 2
 
@@ -2276,9 +2331,11 @@ def iterate_cmd(args):
     rounds_dir = run_dir / "rounds"
     run_dir.mkdir(parents=True, exist_ok=False)
     rounds_dir.mkdir(parents=True, exist_ok=True)
+    acceptance = acceptance_mod.Acceptance(acceptance_contract, tid, run_cwd, run_dir, run_shell_check)
     (run_dir / "goal.txt").write_text(effective_goal + "\n", encoding="utf-8")
     started = now_iso()
     base_meta = {
+        **acceptance.fields(),
         "task_id": tid,
         "mode": "iterate",
         "agent": args.agent,
@@ -2321,15 +2378,21 @@ def iterate_cmd(args):
         if not is_json:
             print(msg, file=sys.stderr, flush=True)
 
-    def _run_evaluation(check_cmd: str | None, artifacts: list[str]) -> dict[str, Any]:
+    def _run_evaluation(check_cmd: str | None, artifacts: list[str], round_num=0, stdout=None) -> dict[str, Any]:
         started_eval = now_iso()
         res = {"started_at": started_eval, "ended_at": started_eval, "returncode": 0, "stdout": "", "stderr": ""}
         if check_cmd:
-            event_capture.record_command(check_cmd)
-            try:
-                res = run_shell_check(check_cmd, run_cwd, args.check_timeout)
-            except subprocess.TimeoutExpired as exc:
-                return {"started_at": started_eval, "ended_at": now_iso(), "returncode": 124, "stdout": exc.stdout or "", "stderr": f"check timeout after {args.check_timeout}s"}
+            input_error = acceptance.check_input_error(check_cmd)
+            if input_error:
+                res.update(returncode=125, stderr=input_error)
+            else:
+                event_capture.record_command(check_cmd)
+                check_timeout = acceptance.check_timeout(check_cmd, args.check_timeout)
+                try:
+                    res = run_shell_check(check_cmd, run_cwd, check_timeout)
+                except subprocess.TimeoutExpired as exc:
+                    res = {"started_at": started_eval, "ended_at": now_iso(), "returncode": 124, "stdout": ensure_text(exc.stdout), "stderr": f"check timeout after {check_timeout}s"}
+        acceptance.evaluate(str(round_num), stdout=stdout, observed={check_cmd: res} if check_cmd else {})
         if res["returncode"] == 0 and artifacts:
             ok, err = loop_engine_mod.check_eval_artifacts(run_cwd, artifacts)
             if not ok:
@@ -2364,8 +2427,8 @@ def iterate_cmd(args):
         })
         if check_result["returncode"] == 0:
             _log("[Round 0] Check passed immediately. Task completed.")
-            meta = {**base_meta, "status": "completed", "ended_at": now_iso(), "rounds": 0, "final_check_passed": True}
-            result = {"task_id": tid, "status": "completed", "agent": args.agent, "rounds": 0, "max_rounds": args.max_rounds, "check": args.check, "eval_artifacts": eval_artifacts, "final_check_passed": True}
+            meta = {**base_meta, **acceptance.fields(), "status": "completed", "ended_at": now_iso(), "rounds": 0, "final_check_passed": True}
+            result = {"task_id": tid, "status": "completed", "agent": args.agent, "rounds": 0, "max_rounds": args.max_rounds, "check": args.check, "eval_artifacts": eval_artifacts, "final_check_passed": True, **acceptance.fields()}
             if getattr(args, "tail", None) is not None:
                 result["check_stdout_tail"] = tail_lines(check_result.get("stdout", ""), args.tail)
                 result["check_stderr_tail"] = tail_lines(check_result.get("stderr", ""), args.tail)
@@ -2402,6 +2465,7 @@ def iterate_cmd(args):
                 rd.mkdir(parents=True, exist_ok=True)
                 write_json(rd / "result.json", round_result)
                 round_results.append(round_result)
+                acceptance.evaluate(str(round_num), execute=False)
                 break
             routing_fallbacks = [] if routing.get("explicit_override") else list(routing.get("fallbacks") or [])
             rd = rounds_dir / str(round_num)
@@ -2439,6 +2503,7 @@ def iterate_cmd(args):
                 idx = attempt["attempt"]
                 (rd / f"attempt-{idx}-stdout.log").write_text(attempt["stdout"], encoding="utf-8")
                 (rd / f"attempt-{idx}-stderr.log").write_text(attempt["stderr"], encoding="utf-8")
+            acceptance.capture_denials(attempts, round_num)
             if final_attempt and final_attempt.get("attempt", 1) > 1:
                 fallback_used = True
             if not final_attempt or final_attempt["returncode"] != 0:
@@ -2447,16 +2512,17 @@ def iterate_cmd(args):
                 round_result = {"round": round_num, "agent_returncode": final_attempt.get("returncode") if final_attempt else None, "attempts": attempts, "check": None}
                 write_json(rd / "result.json", round_result)
                 round_results.append(round_result)
+                acceptance.evaluate(str(round_num), stdout=final_attempt.get("stdout") if final_attempt else None, execute=False)
                 break
             _log(f"[Round {round_num}] Agent completed successfully. Running verification check...")
-            last_check = _run_evaluation(args.check, eval_artifacts)
+            last_check = _run_evaluation(args.check, eval_artifacts, round_num, final_attempt["stdout"])
             (rd / "stdout.log").write_text(final_attempt["stdout"], encoding="utf-8")
             (rd / "stderr.log").write_text(final_attempt["stderr"], encoding="utf-8")
             (rd / "check-stdout.log").write_text(last_check["stdout"], encoding="utf-8")
             (rd / "check-stderr.log").write_text(last_check["stderr"], encoding="utf-8")
 
             if last_check["returncode"] == 0:
-                _log(f"[Round {round_num}] Verification passed! Goal achieved.")
+                _log(f"[Round {round_num}] Loop check passed; acceptance recorded separately.")
                 final_status = "completed"
                 final_check_passed = True
                 round_result = {
@@ -2507,6 +2573,7 @@ def iterate_cmd(args):
 
         meta = {
             **base_meta,
+            **acceptance.fields(),
             "status": final_status,
             "ended_at": now_iso(),
             "rounds": rounds_count,
@@ -2523,6 +2590,7 @@ def iterate_cmd(args):
         }
         result = {
             "task_id": tid,
+            **acceptance.fields(),
             "status": final_status,
             "agent": args.agent,
             "rounds": rounds_count,
@@ -2578,6 +2646,7 @@ def iterate_cmd(args):
         last_session = all_sessions[-1] if all_sessions else None
         term_meta = {
             **base_meta,
+            **acceptance.evaluate("interrupted", execute=False),
             "status": status,
             "ended_at": ended_at,
             "rounds": spent_rounds,
@@ -2594,6 +2663,7 @@ def iterate_cmd(args):
             "rounds_started": spent_started,
             "returncode": rc,
             "error": str(exc) or status,
+            **acceptance.fields(),
         })
         append_task(term_meta)
         raise
@@ -3558,7 +3628,7 @@ def cancel_queue_item(queue_id_value, reason="cancelled", *, previous_status=Non
 def status_cmd(args):
     rows = list(latest_tasks().values())[-args.limit :]
     if args.json:
-        print_json(rows)
+        print_json([{**row, **acceptance_mod.view_fields(row)} for row in rows])
         return 0
     for task in rows:
         print(f"{task['task_id']} {task.get('status')} {task.get('agent')} {task.get('model')}")
@@ -3688,6 +3758,7 @@ def show_cmd(args):
     task = latest_task(args.task_id)
     if not task:
         raise SystemExit(f"Unknown task id: {args.task_id}")
+    task = {**task, **acceptance_mod.view_fields(task)}
     if getattr(args, "summary", False):
         summary_path = Path(task["run_dir"]) / "summary.md"
         if not summary_path.exists():
@@ -3708,6 +3779,8 @@ def show_cmd(args):
                 "memory_recall": task.get("memory_recall"),
                 "workspace": task.get("workspace"),
                 "memory_namespace": task.get("memory_namespace"),
+                **acceptance_mod.view_fields(task),
+                "acceptance": task.get("acceptance"),
             })
         else:
             print_json(task)
@@ -4170,6 +4243,9 @@ def retry_cmd(args):
     prompt_path = Path(task["run_dir"]) / "prompt.txt"
     prompt = prompt_path.read_text(encoding="utf-8").strip()
     ns = argparse.Namespace(agent=task["agent"], prompt=[prompt], model=None, fallback=args.fallback, approve=args.approve, dry_run=False, timeout=args.timeout)
+    ns.frozen_acceptance_contract = task.get("acceptance_contract")
+    ns.cwd = task.get("cwd")
+    ns.retry_of = args.task_id
     return run_task(ns)
 
 
@@ -5874,6 +5950,7 @@ def main():
     run.add_argument("agent")
     run.add_argument("prompt", nargs=argparse.REMAINDER)
     run.add_argument("--model")
+    run.add_argument("--acceptance-contract", metavar="PATH", help="Supervisor-owned P1 JSON acceptance contract")
     run.add_argument("--workspace")
     run.add_argument("--no-memory", action="store_true")
     run.add_argument("--memory-query")
@@ -6317,6 +6394,7 @@ def main():
     iterate.add_argument("agent")
     iterate.add_argument("goal", nargs=argparse.REMAINDER)
     iterate.add_argument("--check")
+    iterate.add_argument("--acceptance-contract", metavar="PATH", help="Supervisor-owned P1 JSON acceptance contract")
     iterate.add_argument("--eval-artifact", action="append", default=[], metavar="PATH")
     iterate.add_argument("--max-rounds", type=int, default=5)
     iterate.add_argument("--max-same-failure", type=int, default=2)
