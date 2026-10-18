@@ -8,7 +8,7 @@
 [![Ecosystem: OMO--Slim](https://img.shields.io/badge/Ecosystem-oh--my--opencode--slim-purple?style=flat-square)](https://github.com/carlg/oh-my-opencode-slim)
 [![Memory: AMB](https://img.shields.io/badge/Memory-Agent--Memory--Bridge-blue?style=flat-square)](https://github.com/zzhang82/Agent-Memory-Bridge)
 [![Python: 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue?style=flat-square&logo=python&logoColor=white)](https://python.org)
-[![Tests: 294 Passing](https://img.shields.io/badge/Tests-294%20Passing-brightgreen?style=flat-square)](tests/)
+[![Tests](https://github.com/zzhang82/ambu-runtime-agents/actions/workflows/test.yml/badge.svg)](https://github.com/zzhang82/ambu-runtime-agents/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
 
 **Ambu** (`agentctl`) is a small CLI for bounded, check-driven repair with [OpenCode](https://opencode.ai). It runs a user-supplied verification command, limits repair attempts, stops on repeated failures, and records each run. It is not a replacement for OMO/Slim orchestration, an operating-system sandbox, or a general-purpose acceptance judge.
@@ -21,7 +21,7 @@ Running autonomous coding agents in a repository often hits two key walls:
 1. **Blind runaway loops**: Agents hitting an environment bug or impossible constraint retry repeatedly, producing identical errors and burning quota.
 2. **Missing verification boundaries**: Agents report that a task is "done" without executing the project's test suite or verification commands.
 
-**Ambu wraps `opencode run` with bounded oversight:** it dispatches tasks, validates every modification against your provided test command, enforces preflight policy gates, and stops when errors repeat.
+**Ambu wraps `opencode run` with bounded oversight:** it dispatches tasks, executes your declared verification checks, enforces preflight policy gates, and stops when errors repeat.
 
 ---
 
@@ -78,6 +78,29 @@ Ambu uses word-boundary intent classification to route prompts to the right spec
 ### 3. Policy Guardrails & Approvals
 High-risk actions (`git_push`, `deploy`, `secrets`, `global_config`, `destructive_delete`) are blocked unless explicitly passed with `--approve <capability>`.
 
+### 4. Evidence-Based Task Acceptance
+
+`run` and `iterate` accept a supervisor-owned JSON acceptance contract, frozen before
+dispatch. Declare the required files or structured result, checks, and permission
+conditions for implementation, review, extraction, or research tasks:
+
+```bash
+agentctl run --acceptance-contract acceptance.json coder "Implement the requested change"
+agentctl show <task_id> --json
+```
+
+Inspect `acceptance_status` independently of process `status`: exit zero or
+`completed` does not mean accepted. Checks are recorded by the supervisor; worker
+claims cannot pass them. A valid file may pass with empty stdout. Required denials
+fail acceptance; unclassified denials require review; optional denials remain evidence.
+Legacy records and new uncontracted `run` tasks stay `unknown`. Existing `iterate`
+check/artifact arguments synthesize a minimal contract. Process exit codes and
+approval policy are unchanged; callers must adopt the new acceptance fields.
+
+See the [contract schema and limitations](docs/p1-acceptance.md) and
+[P1 verification evidence](docs/p1-handoff.md). Acceptance establishes only the
+declared criteria, not universal correctness or exhaustive review coverage.
+
 ---
 
 ## Ecosystem Integrations
@@ -120,7 +143,7 @@ Looking for a hands-free OpenCode / Codex skill with automated milestone streami
 
 ## Testing & License
 
-Run all 288 tests:
+Run the unit and integration tests:
 ```bash
 python3 -m unittest discover -s tests
 ```

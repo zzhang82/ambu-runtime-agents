@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Evidence-based task acceptance (P1)
+- Added `--acceptance-contract` to `run` and `iterate`: supervisor-owned criteria are frozen before dispatch and identified by a SHA-256 fingerprint across retries.
+- Added independent deliverable, acceptance, check, and permission-denial evidence to the existing task ledger. Review, implementation, extraction, and research outputs are validated against declared criteria; worker claims are not verification authority.
+- Preserved process status/exit codes and approval controls. Callers must inspect `acceptance_status`; historical and new uncontracted `run` tasks remain `unknown`. Existing iterate check/artifact arguments synthesize a minimal contract.
+- Added deterministic false-success/adversarial regressions and retained evidence of one real bounded iterate repair. See [P1 handoff](docs/p1-handoff.md) for evidence and limitations. This is unreleased development work; no installed CLI update is implied.
+
 ### Added
 - Added CrewOS company-loop v2 activation surfaces:
   - `agentctl company-status --json` reports `v2_activation_ready` posture, Crew role bindings, daemon heartbeat, queue, schedule, workspace, and Telegram readiness without exposing credential values.

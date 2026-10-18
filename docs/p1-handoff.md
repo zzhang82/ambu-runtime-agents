@@ -6,6 +6,23 @@ Environment: Astra Codex local development, Linux WSL2
 `6.18.54.1-microsoft-standard-WSL2`, Python 3.12.3, 2026-10-18.
 No merge, push, installation update, or deployment was performed.
 
+### Publication integration
+
+The original development record below describes the installed-source baseline.
+For PR publication on 2026-10-18, the three P1 commits were cherry-picked onto
+remote `master` at `f14122238bcd118b008b45c38fcf2d2b6622ceaf` in the separate
+`p1/evidence-based-acceptance-pr` branch. There were no conflicts. The newer
+`policy.py` and `test_policy.py` changes are retained without modification.
+The two P1 product-source hashes still match [source-digests.json](p1-evidence/source-digests.json).
+
+The integrated source passed 36 focused acceptance tests and the full 344-test
+suite (308 existing + 36 P1) on Python 3.12.3. The 335-test log below remains the
+original baseline's result, not the integrated suite's count. README and Unreleased
+changelog entries now explain caller adoption and unchanged process exit codes.
+The existing CI matrix covers Python 3.10, 3.11, and 3.12; its PR results are a
+separate publication gate. No version bump, merge, installation update, or
+Steward Air deployment is part of this PR.
+
 ## A. Implementation
 
 - Worktree: `/home/zzs333/code/ambu-p1-acceptance`.
