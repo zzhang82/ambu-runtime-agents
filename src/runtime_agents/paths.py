@@ -47,4 +47,9 @@ TELEGRAM_OFFSET = STATE_DIR / "telegram.offset"
 TELEGRAM_LOG = STATE_DIR / "telegram.log"
 
 SELF_IMPROVE_HOME = Path.home() / ".runtime-agents"
-EVENTS_JSONL = SELF_IMPROVE_HOME / "events" / "agent-runs.jsonl"
+_events_override = os.environ.get("RUNTIME_AGENTS_EVENTS_JSONL")
+EVENTS_JSONL = (
+    Path(_events_override).expanduser()
+    if _events_override
+    else SELF_IMPROVE_HOME / "events" / "agent-runs.jsonl"
+)

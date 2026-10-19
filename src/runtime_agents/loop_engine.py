@@ -124,6 +124,16 @@ def classify_gap(stdout: str, stderr: str, returncode: int) -> tuple[str, str]:
 
     stderr_text = stderr or ""
 
+    # A direct interpreter diagnostic means the checker never started. Do not
+    # match generic FileNotFoundError/PermissionError or test output: those can
+    # be product defects. Keep the existing check_rubric vocabulary.
+    if re.fullmatch(
+        r"(?:\S*/)?python(?:\d+(?:\.\d+)*)?: can't open file ['\"][^\r\n]+['\"]: "
+        r"\[Errno (?:1|2|13)\] (?:No such file or directory|Permission denied|Operation not permitted)",
+        stderr_text.strip(),
+    ):
+        return "check_rubric", "Python could not open the check script; inspect checker path and access"
+
     # Check for transient errors in stderr (e.g. 429, timeout, connection reset)
     if policy_mod.classify_failure("", stderr_text, returncode) == "transient_model_error":
         return "transient", "Transient API, network, or server error detected in stderr"
@@ -237,6 +247,10 @@ def build_iteration_prompt(
         sections.append(f"Required evaluation artifacts:\n{arts_str}")
 
     sections.append(f"Failure diagnosis:\n[{gap_kind}] {gap_detail}\n\n{action_instruction}")
+    sections.append(
+        "Stay within the authorized workspace. Respect permission denials; report blocked access "
+        "instead of retrying outside the workspace or requesting broader permissions."
+    )
 
     if last_stdout and last_stdout.strip():
         sections.append(f"Previous check stdout:\n{last_stdout.strip()}")
