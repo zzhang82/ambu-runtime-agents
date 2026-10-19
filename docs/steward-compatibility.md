@@ -100,6 +100,13 @@ Two fixture defects were corrected: mocked tilde expansion needed to handle bare
 unsupported `--cwd` flag. The accidental disposable marker was removed and the
 full suite rerun. No existing test expectation was weakened.
 
+The first PR CI run (`39186278633`) passed on Python 3.11/3.12 but found a
+Python 3.10-only fixture error: pathlib retains an `os.path.expanduser` alias,
+so replacing the module attribute does not intercept it. The tilde test now stubs
+the common OS user-home lookup and exercises the real pathlib implementation.
+No production code or expected behavior changed for that correction. The
+follow-up CI run is the authority for cross-version results.
+
 ## Deployment remains held
 
 Steward inspection found macOS arm64, Python 3.14, both old/new 1.5.1 distribution

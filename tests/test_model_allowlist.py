@@ -5,6 +5,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from runtime_agents import model_catalog as catalog
@@ -98,8 +99,9 @@ class ModelAllowlistTests(unittest.TestCase):
         value_file.write_text("fixture-only-value\n")
         for reference in (str(value_file), "synthetic-value.txt", "~/synthetic-value.txt"):
             with self.subTest(reference=reference), patch.object(catalog, "_opencode_config_path", return_value=self.root / "opencode.json"), patch.object(catalog, "_opencode_config", return_value={"provider": {"local": {"options": {"apiKey": "{file:" + reference + "}"}}}}):
-                # expanduser consults the OS home lookup, not Path.home.
-                with patch("os.path.expanduser", side_effect=lambda p: str(self.root) + p[1:] if p == "~" or p.startswith("~/") else p):
+                # Python 3.10 pathlib retains an os.path.expanduser alias.
+                # Stub the common OS lookup, not that version-specific hook.
+                with patch("pwd.getpwuid", return_value=SimpleNamespace(pw_dir=str(self.root))):
                     self.assertEqual(catalog.resolve_cpa_config()["api_key"], "fixture-only-value")
 
     def test_bad_file_reference_does_not_fetch_or_disclose_value(self):
