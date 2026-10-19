@@ -61,7 +61,48 @@ def resolve_cpa_config():
                 or options.get("baseURL") or options.get("base_url"))
     api_key = (os.environ.get("RUNTIME_AGENTS_CPA_API_KEY") or os.environ.get("CPA_API_KEY")
                or options.get("apiKey") or options.get("api_key"))
+    if isinstance(api_key, str) and api_key.startswith("{file:"):
+        if not api_key.endswith("}") or not api_key[6:-1].strip():
+            raise ValueError("Invalid provider API key file reference")
+        key_path = Path(api_key[6:-1]).expanduser()
+        if not key_path.is_absolute():
+            key_path = _opencode_config_path().parent / key_path
+        try:
+            api_key = key_path.read_text(encoding="utf-8").strip()
+        except (OSError, ValueError):
+            raise ValueError("Cannot read provider API key file reference") from None
+        if not api_key:
+            raise ValueError("Empty provider API key file reference")
     return {"base_url": str(base_url).rstrip("/") if base_url else None, "api_key": api_key}
+
+
+def allowed_models(config):
+    """Return optional intersected restrictions, never a list of candidates.
+
+    An explicitly empty/malformed restriction fails closed. Environment input
+    can narrow host configuration, not replace it or expand preflight results.
+    """
+    routing = (config or {}).get("model_routing") or {}
+
+    def validate(values):
+        if not isinstance(values, list) or not values:
+            raise ValueError("Model allowlist must be a nonempty list of local/model names")
+        if any(not isinstance(v, str) or not v.startswith("local/") or len(v) <= 6
+               or any(c.isspace() or c == "," for c in v) for v in values):
+            raise ValueError("Model allowlist entries must be local/model names without whitespace")
+        return list(dict.fromkeys(values))
+
+    configured = validate(routing["allowed_models"]) if "allowed_models" in routing else None
+    raw = os.environ.get("RUNTIME_AGENTS_MODEL_ALLOWLIST")
+    environment = validate([v.strip() for v in raw.split(",")]) if raw is not None else None
+    if configured is None:
+        return environment
+    if environment is None:
+        return configured
+    effective = [model for model in configured if model in environment]
+    if not effective:
+        raise ValueError("Model allowlist intersection is empty")
+    return effective
 
 
 def configured_local_models():
@@ -348,6 +389,8 @@ def recommend(snapshot, frame, config=None, agent=None, state_home=None):
     if frame not in DEFAULT_CANDIDATES:
         raise ValueError(f"unknown frame: {frame}")
     candidates = _routing_candidates(config, frame, agent)
+    # Agent-free recommendations are advisory planner input, not dispatch.
+    allowed = allowed_models(config) if agent is not None else None
     advertised = {item["id"] for item in (snapshot or {}).get("models", []) if item.get("id")}
     ownership = {item["id"]: item.get("owned_by", "unknown") for item in (snapshot or {}).get("models", [])}
     quota_policy = openai_quota_policy(snapshot)
@@ -356,7 +399,9 @@ def recommend(snapshot, frame, config=None, agent=None, state_home=None):
     viable, skipped, penalized = [], [], []
     for model in candidates:
         model_id = model.removeprefix("local/")
-        if advertised and model_id not in advertised:
+        if allowed is not None and model not in allowed:
+            skipped.append({"model": model, "reason": "outside_model_allowlist"})
+        elif advertised and model_id not in advertised:
             skipped.append({"model": model, "reason": "missing_from_cpa_catalog"})
         elif model in deprecated:
             skipped.append({"model": model, "reason": "deprecated_in_opencode"})
@@ -388,6 +433,14 @@ def recommend(snapshot, frame, config=None, agent=None, state_home=None):
 def dispatch_preflight(config, agent, requested_model=None, state_home=None, refresh=True):
     routing = (config or {}).get("model_routing") or {}
     required = bool(routing.get("required"))
+    try:
+        allowed = allowed_models(config)
+    except ValueError as exc:
+        return {"required": True, "enforced": True, "selected_model": None, "fallbacks": [],
+                "skipped": [{"reason": "invalid_model_allowlist", "detail": str(exc)}]}
+    if allowed is not None and (not required or (requested_model and requested_model not in allowed)):
+        return {"required": True, "enforced": True, "selected_model": None, "fallbacks": [],
+                "skipped": [{"reason": "allowlist_requires_live_preflight" if not required else "outside_model_allowlist"}]}
     agent_cfg = ((config or {}).get("agents") or {}).get(agent) or {}
     static_model = requested_model or agent_cfg.get("model") or ((config or {}).get("models") or {}).get("primary")
     if not required:

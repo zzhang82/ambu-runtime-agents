@@ -917,16 +917,31 @@ def detect_approvals(config, agent_cfg, prompt):
 
 
 def build_command(tool, model, prompt, profile=None, autonomy="read_only", opencode_agent=None, variant=None, session_id=None, fork=False):
+    try:
+        allowed = model_catalog_mod.allowed_models(load_config())
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from None
+    if allowed is not None and model not in allowed:
+        raise SystemExit("MODEL_UNAVAILABLE: model is outside trusted runtime allowlist")
     if tool == "opencode":
-        return execution_substrate_mod.build_opencode_exec_command(
+        diagnostic = os.environ.get("RUNTIME_AGENTS_DIAGNOSTIC_PROFILE")
+        if diagnostic and (diagnostic != "read_only" or autonomy != "read_only"):
+            raise SystemExit("Invalid diagnostic profile: requires read_only autonomy and profile")
+        command = execution_substrate_mod.build_opencode_exec_command(
             model,
             prompt,
             autonomy=autonomy,
-            opencode_agent=opencode_agent,
+            opencode_agent="hcp-readonly-diagnostic" if diagnostic else opencode_agent,
             variant=variant,
             session_id=session_id,
             fork=fork,
         )
+        if diagnostic:
+            command[2:2] = ["--pure", "--format", "json"]
+            evidence = os.environ.get("RUNTIME_AGENTS_DIAGNOSTIC_EVIDENCE")
+            if evidence:
+                command[2:2] = ["--file", evidence]
+        return command
     raise SystemExit(f"Unsupported tool: {tool}")
 
 
@@ -2030,7 +2045,7 @@ def run_task(args):
             model,
             effective_prompt,
             autonomy,
-            args.fallback,
+            args.fallback and not routing.get("required") and not routing.get("explicit_override"),
             args.timeout,
             cwd=run_cwd,
             event_capture=event_capture,
@@ -2454,6 +2469,11 @@ def iterate_cmd(args):
         last_check = check_result
         rounds_started = 0
         for round_num in range(1, args.max_rounds + 1):
+            if last_gap == "check_rubric":
+                halt_reason = "inaccessible_check"
+                final_status = "blocked"
+                _log(f"[HALT] Check cannot execute: {last_gap_detail}")
+                break
             rounds_started = round_num
             _log(f"\n[Round {round_num}/{args.max_rounds}] Preparing agent dispatch...")
             routing = model_catalog_mod.dispatch_preflight(config, args.agent, args.model)
@@ -2490,7 +2510,7 @@ def iterate_cmd(args):
                 model,
                 prompt,
                 autonomy,
-                args.fallback,
+                args.fallback and not routing.get("required") and not routing.get("explicit_override"),
                 args.timeout,
                 cwd=run_cwd,
                 event_capture=event_capture,
@@ -2556,9 +2576,12 @@ def iterate_cmd(args):
             }
             write_json(rd / "result.json", round_result)
             round_results.append(round_result)
-            if should_stop:
-                halt_reason = "repeated_identical_failure"
-                _log(f"\n[ANTI-LOOP HALT] Identical failure reproduced {current_count} times; stopping early")
+            if gap == "check_rubric" or should_stop:
+                halt_reason = "inaccessible_check" if gap == "check_rubric" else "repeated_identical_failure"
+                if gap == "check_rubric":
+                    _log(f"[HALT] Check cannot execute: {gap_detail}")
+                else:
+                    _log(f"\n[ANTI-LOOP HALT] Identical failure reproduced {current_count} times; stopping early")
                 final_status = "blocked"
                 break
 

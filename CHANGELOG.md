@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Steward runtime compatibility
+- Integrated portable host protections: configured/per-invocation model restrictions, OpenCode file-backed key references, isolated event logging, and opt-in read-only diagnostic invocation. No host policy, model assignments, credentials, or installed runtime are changed by this source patch.
+- Required live preflight and explicit model pins cannot fall back to legacy unvalidated profiles. Environment allowlists narrow candidates; they do not replace the preflight result.
+- Stop iterate immediately when the check cannot execute (shell exit 126/127 or a direct Python checker-open diagnostic). Preserve upstream repeated-failure accounting and PR #2's capability parser; omit host canary-specific heuristics.
+- See [five-file assessment](docs/steward-compatibility.md) for adoption decisions and host deployment limitations.
+
 ### Evidence-based task acceptance (P1)
 - Added `--acceptance-contract` to `run` and `iterate`: supervisor-owned criteria are frozen before dispatch and identified by a SHA-256 fingerprint across retries.
 - Added independent deliverable, acceptance, check, and permission-denial evidence to the existing task ledger. Review, implementation, extraction, and research outputs are validated against declared criteria; worker claims are not verification authority.

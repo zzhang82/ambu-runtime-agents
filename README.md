@@ -101,6 +101,20 @@ See the [contract schema and limitations](docs/p1-acceptance.md) and
 [P1 verification evidence](docs/p1-handoff.md). Acceptance establishes only the
 declared criteria, not universal correctness or exhaustive review coverage.
 
+### Host compatibility controls
+
+Hosts can restrict dispatch with `model_routing.allowed_models` and narrow it per
+invocation with `RUNTIME_AGENTS_MODEL_ALLOWLIST` (comma-separated `local/...`
+models). Restrictions require live model preflight; they never add fallback
+candidates. `RUNTIME_AGENTS_EVENTS_JSONL` selects an isolated event log.
+
+The opt-in `RUNTIME_AGENTS_DIAGNOSTIC_PROFILE=read_only` selects the host-provided
+`hcp-readonly-diagnostic` OpenCode agent with `--pure --format json`; optional
+`RUNTIME_AGENTS_DIAGNOSTIC_EVIDENCE` supplies one `--file` argument. The host must
+already supply that agent and its permission policy. These flags are not an OS
+sandbox. See [Steward compatibility decisions](docs/steward-compatibility.md)
+for prerequisites, checker-stop semantics, and the five-file patch assessment.
+
 ---
 
 ## Ecosystem Integrations
