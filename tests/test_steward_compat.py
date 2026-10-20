@@ -74,6 +74,14 @@ class CommandCompatibilityTests(unittest.TestCase):
 
 
 class CheckerCompatibilityTests(unittest.TestCase):
+    def test_macos_framework_python_missing_checker_is_check_rubric(self):
+        diagnostic = ("/Library/Frameworks/Python.framework/Versions/3.14/Resources/"
+                      "Python.app/Contents/MacOS/Python: can't open file '/fixture/check.py': "
+                      "[Errno 2] No such file or directory\n")
+        self.assertEqual(loop_engine.classify_gap('', diagnostic, 2)[0], 'check_rubric')
+        self.assertEqual(loop_engine.classify_gap(diagnostic, '', 2)[0], 'execution')
+        self.assertEqual(loop_engine.classify_gap('', 'AssertionError: ' + diagnostic, 2)[0], 'execution')
+
     def test_missing_python_checker_is_check_rubric(self):
         for code, reason in [(2, "No such file or directory"), (13, "Permission denied"), (1, "Operation not permitted")]:
             stderr = f"/usr/bin/python3: can't open file '/fixture/check.py': [Errno {code}] {reason}\n"

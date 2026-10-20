@@ -108,13 +108,17 @@ class ExecutionSubstrateTests(unittest.TestCase):
             ["opencode", "run", "--model", "local/gpt-5.5", "--agent", "build", "fix"],
         )
 
-    def test_opencode_build_command_is_live_routed(self):
+    @patch.dict(os.environ, {}, clear=True)
+    @patch.object(cli, 'load_config', return_value={})
+    def test_opencode_build_command_is_live_routed(self, _config):
         self.assertEqual(
             cli.build_command("opencode", "local/gpt-5.5", "inspect", autonomy="read_only", opencode_agent="plan"),
             ["opencode", "run", "--model", "local/gpt-5.5", "--agent", "plan", "inspect"],
         )
 
-    def test_dynamic_transient_failure_uses_next_model_and_records_cooldown(self):
+    @patch.dict(os.environ, {}, clear=True)
+    @patch.object(cli, 'load_config', return_value={})
+    def test_dynamic_transient_failure_uses_next_model_and_records_cooldown(self, _config):
         results = [
             {"started_at": "a", "ended_at": "b", "returncode": 1, "stdout": "", "stderr": "429 rate limit"},
             {"started_at": "c", "ended_at": "d", "returncode": 0, "stdout": "ok", "stderr": ""},
@@ -137,7 +141,9 @@ class ExecutionSubstrateTests(unittest.TestCase):
         self.assertEqual(final["model"], "local/gemini-3.7-flash-high")
         cooldown.assert_called_once_with("local/grok-composer-2.5-fast", "transient_model_error", 120)
 
-    def test_direct_runtime_tools_are_unsupported(self):
+    @patch.dict(os.environ, {}, clear=True)
+    @patch.object(cli, 'load_config', return_value={})
+    def test_direct_runtime_tools_are_unsupported(self, _config):
         for tool in ("codex", "claude", "gemini"):
             with self.subTest(tool=tool):
                 with self.assertRaises(SystemExit) as raised:
