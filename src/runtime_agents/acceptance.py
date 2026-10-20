@@ -185,8 +185,11 @@ def from_args(args, cwd, *, iterate=False):
         checks = ([{"id": "iterate-check", "command": args.check,
                     "timeout": 300 if timeout is None else timeout}] if args.check else [])
         paths = [p.strip() for p in (getattr(args, "eval_artifact", []) or []) if p and p.strip()]
-        paths = [str(Path(p).relative_to(cwd.resolve()))
-                 if Path(p).is_absolute() and Path(p).is_relative_to(cwd.resolve()) else p for p in paths]
+        # Resolve both sides: macOS temporary directories may use /var aliases
+        # for /private/var. Out-of-workspace paths still fail contract validation.
+        root = cwd.resolve()
+        paths = [str(Path(p).resolve().relative_to(root))
+                 if Path(p).is_absolute() and Path(p).resolve().is_relative_to(root) else p for p in paths]
         outputs = [{"id": f"artifact-{i}", "source": "file", "path": p, "nonempty": True}
                    for i, p in enumerate(paths)]
         return freeze({"contract_version": 1, "result_type": "implementation",

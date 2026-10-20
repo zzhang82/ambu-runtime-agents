@@ -178,7 +178,9 @@ class AuditHardeningTests(unittest.TestCase):
             # 3 max rounds minus 2 started rounds leaves 1
             self.assertEqual(called_args["max_rounds"], 1)
 
-    def test_dispatch_does_not_guess_foreign_session_on_success(self):
+    @patch.dict(os.environ, {}, clear=True)
+    @patch.object(cli, 'load_config', return_value={})
+    def test_dispatch_does_not_guess_foreign_session_on_success(self, _config):
         # Even if a foreign session exists in the DB within the time window,
         # execute_agent_attempts must not guess or adopt it on successful exit.
         agent_cfg = {"tool": "opencode", "autonomy": "workspace_write", "opencode_agent": "coder"}

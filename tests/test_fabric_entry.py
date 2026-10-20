@@ -5,6 +5,7 @@ import os
 import shutil
 import stat
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -112,9 +113,9 @@ def _fixture_files(root: Path) -> tuple[dict, dict, dict, Path, Path]:
 class FabricEntryTests(unittest.TestCase):
     def test_unknown_mode_is_rejected_by_existing_cli_parser(self):
         env = os.environ.copy()
-        env.pop("PYTHONPATH", None)
+        env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1] / 'src')
         result = subprocess.run(
-            ["python3", "-m", "runtime_agents.cli", "fabric", "run", "--mode", "automatic", "--dry-run"],
+            [sys.executable, "-m", "runtime_agents.cli", "fabric", "run", "--mode", "automatic", "--dry-run"],
             cwd=Path(__file__).resolve().parents[1],
             env=env,
             capture_output=True,

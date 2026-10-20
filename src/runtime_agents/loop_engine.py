@@ -128,7 +128,7 @@ def classify_gap(stdout: str, stderr: str, returncode: int) -> tuple[str, str]:
     # match generic FileNotFoundError/PermissionError or test output: those can
     # be product defects. Keep the existing check_rubric vocabulary.
     if re.fullmatch(
-        r"(?:\S*/)?python(?:\d+(?:\.\d+)*)?: can't open file ['\"][^\r\n]+['\"]: "
+        r"(?:\S*/)?[pP]ython(?:\d+(?:\.\d+)*)?: can't open file ['\"][^\r\n]+['\"]: "
         r"\[Errno (?:1|2|13)\] (?:No such file or directory|Permission denied|Operation not permitted)",
         stderr_text.strip(),
     ):

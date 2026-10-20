@@ -46,6 +46,38 @@ print(json.dumps({'acceptance_contract': {'required_outputs': []}, 'acceptance_s
         frozen = acceptance.from_args(args, self.root, iterate=True)
         self.assertEqual([o['path'] for o in frozen.payload()['required_outputs']], ['answer.txt', 'inside.txt'])
 
+    def test_synthesized_contract_normalizes_symlinked_workspace_alias(self):
+        workspace = self.root / 'workspace'
+        workspace.mkdir()
+        alias = self.root / 'alias'
+        alias.symlink_to(workspace, target_is_directory=True)
+        (workspace / 'answer.txt').write_text('42\n')
+        args = Namespace(check=None, eval_artifact=[str(alias / 'answer.txt')])
+        frozen = acceptance.from_args(args, alias, iterate=True)
+        canonical = acceptance.from_args(
+            Namespace(check=None, eval_artifact=[str(workspace.resolve() / 'answer.txt')]),
+            workspace.resolve(), iterate=True)
+        self.assertEqual(frozen.fingerprint, canonical.fingerprint)
+        self.assertEqual(frozen.payload()['required_outputs'][0]['path'], 'answer.txt')
+        run_dir = self.root / 'alias-run'
+        run_dir.mkdir()
+        result = acceptance.Acceptance(frozen, 'alias-task', alias, run_dir, None).evaluate('1')
+        self.assertEqual(result['deliverable_status'], 'satisfied')
+        self.assertEqual(result['acceptance_status'], 'passed')
+
+    def test_synthesized_contract_still_rejects_outside_artifacts(self):
+        workspace = self.root / 'workspace'
+        workspace.mkdir()
+        outside = self.root / 'outside'
+        outside.mkdir()
+        (workspace / 'escape').symlink_to(outside, target_is_directory=True)
+        for path in (str(outside / 'answer.txt'), str(workspace / 'escape' / 'answer.txt'),
+                     'escape/answer.txt', '../outside/answer.txt'):
+            with self.subTest(path=path), self.assertRaises(ValueError):
+                acceptance.from_args(Namespace(check=None, eval_artifact=[path]), workspace, iterate=True)
+        with self.assertRaisesRegex(ValueError, 'workspace-relative'):
+            acceptance.freeze(contract_for(str(workspace / 'answer.txt')), workspace)
+
     def test_persisted_contract_tampering_is_review_not_acceptance(self):
         result = self.run_case(contract_for(), """from pathlib import Path
 import os
